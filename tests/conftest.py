@@ -24,6 +24,23 @@ from mcpscan.domain import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point home-dir discovery at an empty temp dir for every test.
+
+    Pipelines default ``env`` to ``os.environ``, so without this a developer
+    machine's real host configs (``~/.claude``, Claude Desktop, Cursor, ...)
+    leak into any test that runs a real pipeline — e.g. a credential in the
+    real Claude Desktop config fails the trust ``--min-grade`` gate tests.
+    """
+    home = tmp_path_factory.mktemp("home")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("APPDATA", str(home / "AppData" / "Roaming"))
+    monkeypatch.delenv("HOMEDRIVE", raising=False)
+    monkeypatch.delenv("HOMEPATH", raising=False)
+
+
 @pytest.fixture
 def make_finding() -> Callable[..., Finding]:
     """Factory for a ``Finding`` with sensible defaults; override any field."""

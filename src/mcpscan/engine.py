@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import os
 import platform
+import shutil
 import stat
+import subprocess  # nosec B404
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
@@ -196,6 +198,31 @@ def _server_from_socket(
     )
 
 
+def _git_tracked(path: Path) -> bool | None:
+    """Whether git tracks ``path``; ``None`` when unknown (no git, no repo, error).
+
+    Read-only (``git ls-files`` never touches the index or worktree), so the
+    engine's no-writes guarantee holds.
+    """
+    git = shutil.which("git")
+    if git is None:
+        return None
+    try:
+        proc = subprocess.run(  # nosec B603 (fixed argv, no shell)
+            [git, "-C", str(path.parent), "ls-files", "--error-unmatch", "--", path.name],
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode == 0:
+        return True
+    if proc.returncode == 1:  # inside a repo, but untracked
+        return False
+    return None  # e.g. 128: not a git repository
+
+
 def _read_config_file(path: Path) -> str | None:
     try:
         return safe_read_text(path, root=path.parent)
@@ -259,7 +286,10 @@ def scan(
             raw = _read_config_file(env_path)
             if raw is not None:
                 mode = stat.S_IMODE(env_path.stat().st_mode)
-                servers.append(_audit_env_file(parse_env_text(str(env_path), raw, mode=mode)))
+                env_file = parse_env_text(
+                    str(env_path), raw, mode=mode, git_tracked=_git_tracked(env_path)
+                )
+                servers.append(_audit_env_file(env_file))
 
     # --- running-server discovery + exposure ---
     if enumerate_sockets:
