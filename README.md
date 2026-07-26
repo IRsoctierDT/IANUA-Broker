@@ -1,4 +1,4 @@
-# AI Agentic MCPscan
+# IANUA-Broker 
 
 > Local-first, **offline-by-default** security posture scanner for MCP /
 > local-agent setups. Find exposed servers, plaintext secrets, over-broad tool
