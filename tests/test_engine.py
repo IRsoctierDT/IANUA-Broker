@@ -187,9 +187,7 @@ def test_env_file_outside_git_repo_has_unknown_tracking(tmp_path: Path) -> None:
     assert "CRED-GIT" not in ids
 
 
-def test_git_tracked_none_when_git_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_git_tracked_none_when_git_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(engine_mod.shutil, "which", lambda _: None)
     assert engine_mod._git_tracked(tmp_path / ".env") is None
 

@@ -25,7 +25,9 @@ from mcpscan.domain import (
 
 
 @pytest.fixture(autouse=True)
-def _isolated_home(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+def _isolated_home(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Point home-dir discovery at an empty temp dir for every test.
 
     Pipelines default ``env`` to ``os.environ``, so without this a developer

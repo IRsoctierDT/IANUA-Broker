@@ -106,9 +106,7 @@ def parse_lsof_listeners(output: str) -> tuple[ListeningSocket, ...]:
             if key in seen:
                 continue
             seen.add(key)
-            found.append(
-                ListeningSocket(ip=host, port=int(port_str), pid=pid, proc_name=proc_name)
-            )
+            found.append(ListeningSocket(ip=host, port=int(port_str), pid=pid, proc_name=proc_name))
     return tuple(found)
 
 
@@ -136,9 +134,7 @@ def _lsof_fallback() -> EnumerationResult | None:
     # lsof exits 1 when nothing matched; anything else is a real failure.
     if proc.returncode not in (0, 1):
         return None
-    return EnumerationResult(
-        sockets=parse_lsof_listeners(proc.stdout), inspection_incomplete=True
-    )
+    return EnumerationResult(sockets=parse_lsof_listeners(proc.stdout), inspection_incomplete=True)
 
 
 def enumerate_listening() -> EnumerationResult:
