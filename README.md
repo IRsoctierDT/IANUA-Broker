@@ -324,6 +324,7 @@ model: [`docs/proposals/LAN_SCANNING.md`](docs/proposals/LAN_SCANNING.md).
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component model, dependency direction, trust boundaries. |
 | [docs/BACKLOG.md](docs/BACKLOG.md) | Sprint-tagged tickets + requirement→ticket traceability. |
 | [docs/SECURITY_SIGNOFF.md](docs/SECURITY_SIGNOFF.md) | Threat-model verification matrix (security sign-off). |
+| [docs/agents/](docs/agents/README.md) | MCP Sentinel agent suite — governed agent roles, registry, and operating model. |
 | [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) | Reporting policy · contributor guide. |
 
 ## Status & roadmap
