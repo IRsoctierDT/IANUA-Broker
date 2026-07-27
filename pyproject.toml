@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ai-agentic-mcpscan"
-version = "1.4.0"
+version = "1.4.1"
 description = "Local-first, offline-by-default security posture scanner for MCP / local-agent setups."
 readme = "README.md"
 requires-python = ">=3.11"

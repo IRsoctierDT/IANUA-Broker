@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1](https://github.com/IRsoctierDT/IANUA-Broker/compare/ai-agentic-mcpscan-v1.4.0...ai-agentic-mcpscan-v1.4.1) (2026-07-27)
+
+
+### Bug Fixes
+
+* close scan blind spots and make the test suite hermetic ([#67](https://github.com/IRsoctierDT/IANUA-Broker/issues/67)) ([f3c9a9e](https://github.com/IRsoctierDT/IANUA-Broker/commit/f3c9a9ed7af5ac1d6001036ef4091d942ef56d44))
+
 ## [1.4.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ai-agentic-mcpscan-v1.3.0...ai-agentic-mcpscan-v1.4.0) (2026-07-12)
 
 
