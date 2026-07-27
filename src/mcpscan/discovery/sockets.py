@@ -11,6 +11,8 @@ call degrades gracefully when the OS denies introspection (FR-D1).
 from __future__ import annotations
 
 import ipaddress
+import shutil
+import subprocess  # nosec B404
 from dataclasses import dataclass
 from typing import Any
 
@@ -72,11 +74,75 @@ def classify_exposure(ip: str) -> Severity | None:
     return Severity.CRITICAL
 
 
+def parse_lsof_listeners(output: str) -> tuple[ListeningSocket, ...]:
+    """Parse ``lsof -Fpcn`` machine-format output into listening sockets.
+
+    Pure (no I/O). Lines come in per-process groups: ``p<pid>``, ``c<command>``,
+    then one ``n<addr>`` per socket (e.g. ``*:8199``, ``127.0.0.1:8080``,
+    ``[::1]:443``). A dual-stack listener repeats the same name per address
+    family, so results are deduped on (ip, port, pid).
+    """
+    found: list[ListeningSocket] = []
+    seen: set[tuple[str, int, int | None]] = set()
+    pid: int | None = None
+    proc_name: str | None = None
+    for line in output.splitlines():
+        if not line:
+            continue
+        tag, value = line[0], line[1:]
+        if tag == "p":
+            pid = int(value) if value.isdigit() else None
+            proc_name = None
+        elif tag == "c":
+            proc_name = value or None
+        elif tag == "n":
+            host, sep, port_str = value.rpartition(":")
+            if not sep or not port_str.isdigit():
+                continue
+            host = host.strip("[]")
+            if host == "*":  # lsof's wildcard-bind notation
+                host = "0.0.0.0"  # noqa: S104  # nosec B104 (detecting, not binding)
+            key = (host, int(port_str), pid)
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(ListeningSocket(ip=host, port=int(port_str), pid=pid, proc_name=proc_name))
+    return tuple(found)
+
+
+def _lsof_fallback() -> EnumerationResult | None:
+    """Best-effort listener enumeration via ``lsof`` for POSIX hosts.
+
+    On macOS, ``psutil.net_connections`` requires root; ``lsof`` can still see
+    the invoking user's own processes. Returns ``None`` when lsof is missing or
+    fails. Results stay ``inspection_incomplete=True`` because other users'
+    listeners remain invisible without elevation.
+    """
+    lsof = shutil.which("lsof")
+    if lsof is None:
+        return None
+    try:
+        proc = subprocess.run(  # nosec B603 (fixed argv, no shell)
+            [lsof, "-nP", "-iTCP", "-sTCP:LISTEN", "-Fpcn"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    # lsof exits 1 when nothing matched; anything else is a real failure.
+    if proc.returncode not in (0, 1):
+        return None
+    return EnumerationResult(sockets=parse_lsof_listeners(proc.stdout), inspection_incomplete=True)
+
+
 def enumerate_listening() -> EnumerationResult:
     """Enumerate listening sockets via psutil, degrading on permission limits.
 
-    Never raises: if psutil is unavailable or access is denied, returns whatever
-    was gathered with ``inspection_incomplete=True`` (FR-D1).
+    Never raises: if psutil is unavailable or access is denied, falls back to
+    ``lsof`` (own-user listeners only), and failing that returns whatever was
+    gathered with ``inspection_incomplete=True`` (FR-D1).
     """
     try:
         import psutil
@@ -88,6 +154,9 @@ def enumerate_listening() -> EnumerationResult:
     try:
         connections = psutil.net_connections(kind="inet")
     except (psutil.AccessDenied, PermissionError, OSError):
+        fallback = _lsof_fallback()
+        if fallback is not None:
+            return fallback
         return EnumerationResult(sockets=(), inspection_incomplete=True)
 
     for conn in connections:

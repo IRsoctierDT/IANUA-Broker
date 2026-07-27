@@ -24,7 +24,13 @@ class EnvFile:
     git_tracked: bool | None = None
 
 
-def parse_env_text(path: str, text: str, *, mode: int | None = None) -> EnvFile:
+def parse_env_text(
+    path: str,
+    text: str,
+    *,
+    mode: int | None = None,
+    git_tracked: bool | None = None,
+) -> EnvFile:
     """Parse ``.env`` text into key/value entries (line numbers 1-based)."""
     entries: list[tuple[int, str, str]] = []
     for lineno, raw_line in enumerate(text.splitlines(), start=1):
@@ -33,7 +39,7 @@ def parse_env_text(path: str, text: str, *, mode: int | None = None) -> EnvFile:
             continue
         key, _, value = line.partition("=")
         entries.append((lineno, key.strip(), value.strip().strip("'\"")))
-    return EnvFile(path=path, entries=tuple(entries), mode=mode)
+    return EnvFile(path=path, entries=tuple(entries), mode=mode, git_tracked=git_tracked)
 
 
 __all__ = ["EnvFile", "ServerDecl", "parse_env_text"]

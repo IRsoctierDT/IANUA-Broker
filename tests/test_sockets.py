@@ -47,9 +47,79 @@ def test_access_denied_degrades_gracefully(
     fake_psutil: Callable[..., types.ModuleType],
 ) -> None:
     monkeypatch.setitem(sys.modules, "psutil", fake_psutil([], raise_access=True))
+    monkeypatch.setattr(sockets, "_lsof_fallback", lambda: None)  # no lsof either
     result = sockets.enumerate_listening()
     assert result.sockets == ()
     assert result.inspection_incomplete is True
+
+
+def test_access_denied_uses_lsof_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_psutil: Callable[..., types.ModuleType],
+) -> None:
+    # macOS without root: psutil denies enumeration, but lsof still sees the
+    # user's own listeners — the wildcard bind must survive the fallback.
+    monkeypatch.setitem(sys.modules, "psutil", fake_psutil([], raise_access=True))
+    fallback = sockets.EnumerationResult(
+        sockets=(sockets.ListeningSocket(ip="0.0.0.0", port=8199, pid=42, proc_name="python"),),
+        inspection_incomplete=True,
+    )
+    monkeypatch.setattr(sockets, "_lsof_fallback", lambda: fallback)
+    result = sockets.enumerate_listening()
+    assert result.sockets == fallback.sockets
+    assert result.inspection_incomplete is True
+
+
+def test_parse_lsof_listeners_parses_machine_format() -> None:
+    output = (
+        "p42\ncpython\nn*:8199\nn127.0.0.1:8080\nn[::1]:8080\n"
+        "p77\ncnode\nn*:3000\nn*:3000\nnbogus\n"
+    )
+    found = sockets.parse_lsof_listeners(output)
+    assert sockets.ListeningSocket(ip="0.0.0.0", port=8199, pid=42, proc_name="python") in found
+    assert sockets.ListeningSocket(ip="127.0.0.1", port=8080, pid=42, proc_name="python") in found
+    assert sockets.ListeningSocket(ip="::1", port=8080, pid=42, proc_name="python") in found
+    # Dual-stack duplicate deduped; the malformed name line is skipped.
+    assert [s for s in found if s.pid == 77] == [
+        sockets.ListeningSocket(ip="0.0.0.0", port=3000, pid=77, proc_name="node")
+    ]
+
+
+def test_lsof_fallback_none_when_lsof_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sockets.shutil, "which", lambda _: None)
+    assert sockets._lsof_fallback() is None
+
+
+def test_lsof_fallback_parses_subprocess_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sockets.shutil, "which", lambda _: "/usr/sbin/lsof")
+
+    def _fake_run(argv: list[str], **_: Any) -> Any:
+        assert argv[0] == "/usr/sbin/lsof"
+        return types.SimpleNamespace(returncode=0, stdout="p9\ncsrv\nn*:9999\n")
+
+    monkeypatch.setattr(sockets.subprocess, "run", _fake_run)
+    result = sockets._lsof_fallback()
+    assert result is not None
+    assert result.inspection_incomplete is True  # own-user visibility only
+    assert result.sockets == (
+        sockets.ListeningSocket(ip="0.0.0.0", port=9999, pid=9, proc_name="srv"),
+    )
+
+
+def test_lsof_fallback_none_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sockets.shutil, "which", lambda _: "/usr/sbin/lsof")
+    monkeypatch.setattr(
+        sockets.subprocess,
+        "run",
+        lambda *a, **k: types.SimpleNamespace(returncode=2, stdout=""),
+    )
+    assert sockets._lsof_fallback() is None
+
+    def _boom(*_: Any, **__: Any) -> Any:
+        raise sockets.subprocess.TimeoutExpired(cmd="lsof", timeout=10)
+
+    monkeypatch.setattr(sockets.subprocess, "run", _boom)
+    assert sockets._lsof_fallback() is None
 
 
 def test_proc_name_denied_marks_incomplete_but_keeps_socket(

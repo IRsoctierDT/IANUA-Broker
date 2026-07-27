@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess  # nosec B404
 from pathlib import Path
 
 import pytest
@@ -134,6 +136,60 @@ def test_env_file_in_project_root_is_audited(tmp_path: Path) -> None:
     env_servers = [s for s in report.servers if s.id.endswith(".env")]
     assert len(env_servers) == 1
     assert any(f.id == "CRED-PLAINTEXT" for f in env_servers[0].findings)
+
+
+_GIT = shutil.which("git")
+
+
+def _git(tmp_path: Path, *args: str) -> None:
+    assert _GIT is not None
+    subprocess.run(  # nosec B603 (fixed argv, no shell)
+        [_GIT, "-C", str(tmp_path), "-c", "user.email=t@t", "-c", "user.name=t", *args],
+        check=True,
+        capture_output=True,
+    )
+
+
+@pytest.mark.skipif(_GIT is None, reason="git not installed")
+def test_git_tracked_secret_env_file_is_flagged(tmp_path: Path) -> None:
+    # T-207: a committed .env holding a secret must surface CRED-GIT through
+    # the real scan pipeline, not just the unit-level check.
+    (tmp_path / ".env").write_text(
+        "OPENAI_API_KEY=sk-ABCDEFGHIJKLMNOPQRSTUVWX0123\n", encoding="utf-8"
+    )
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "add", ".env")
+    _git(tmp_path, "commit", "-qm", "x")
+    report = scan(roots=[tmp_path], system="Linux", env={}, enumerate_sockets=False)
+    ids = {f.id for s in report.servers for f in s.findings}
+    assert "CRED-GIT" in ids
+
+
+@pytest.mark.skipif(_GIT is None, reason="git not installed")
+def test_untracked_secret_env_file_is_not_git_flagged(tmp_path: Path) -> None:
+    (tmp_path / ".env").write_text(
+        "OPENAI_API_KEY=sk-ABCDEFGHIJKLMNOPQRSTUVWX0123\n", encoding="utf-8"
+    )
+    _git(tmp_path, "init", "-q")  # a repo, but the .env is not committed
+    report = scan(roots=[tmp_path], system="Linux", env={}, enumerate_sockets=False)
+    ids = {f.id for s in report.servers for f in s.findings}
+    assert "CRED-GIT" not in ids
+    assert "CRED-PLAINTEXT" in ids  # the secret itself is still flagged
+
+
+def test_env_file_outside_git_repo_has_unknown_tracking(tmp_path: Path) -> None:
+    # No repo -> git_tracked stays unknown (None): no CRED-GIT, no crash.
+    (tmp_path / ".env").write_text(
+        "OPENAI_API_KEY=sk-ABCDEFGHIJKLMNOPQRSTUVWX0123\n", encoding="utf-8"
+    )
+    report = scan(roots=[tmp_path], system="Linux", env={}, enumerate_sockets=False)
+    ids = {f.id for s in report.servers for f in s.findings}
+    assert "CRED-GIT" not in ids
+
+
+def test_git_tracked_none_when_git_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(engine_mod.shutil, "which", lambda _: None)
+    assert engine_mod._git_tracked(tmp_path / ".env") is None
 
 
 def test_unreadable_config_is_skipped(tmp_path: Path) -> None:
