@@ -10,8 +10,8 @@ from mcpscan.discovery.sockets import ListeningSocket, classify_exposure
 from mcpscan.domain import Dimension, Severity
 from mcpscan.scoring import (
     dimension_grades,
-    grade_for_score,
     grade_findings,
+    grade_for_score,
     score_findings,
     worst_grade,
 )
@@ -24,8 +24,8 @@ def test_loopback_not_flagged() -> None:
 
 
 def test_wildcard_bind_is_critical() -> None:
-    assert classify_exposure("0.0.0.0") is Severity.CRITICAL  # noqa: S104
-    findings = check_socket_exposure(ListeningSocket("0.0.0.0", 8000, 1, "node"))  # noqa: S104
+    assert classify_exposure("0.0.0.0") is Severity.CRITICAL
+    findings = check_socket_exposure(ListeningSocket("0.0.0.0", 8000, 1, "node"))
     assert findings[0].dimension is Dimension.EXPOSURE
 
 
@@ -95,7 +95,7 @@ def test_scoring_rubric_bands() -> None:
 
 
 def test_score_floors_at_zero() -> None:
-    findings = check_socket_exposure(ListeningSocket("0.0.0.0", 1, 1, "n")) * 5  # noqa: S104
+    findings = check_socket_exposure(ListeningSocket("0.0.0.0", 1, 1, "n")) * 5
     assert score_findings(findings) == 0
     assert grade_findings(findings) == "F"
 
@@ -103,7 +103,7 @@ def test_score_floors_at_zero() -> None:
 def test_worst_grade_and_dimension_grades() -> None:
     assert worst_grade(["A", "C", "F", "B"]) == "F"
     assert worst_grade([]) == "A"
-    crit = check_socket_exposure(ListeningSocket("0.0.0.0", 1, 1, "n"))  # noqa: S104
+    crit = check_socket_exposure(ListeningSocket("0.0.0.0", 1, 1, "n"))
     grades = dimension_grades(crit)
     assert grades[Dimension.EXPOSURE] == "D"  # one Critical: 100-40=60 => D (rubric)
     assert grades[Dimension.PINNING] == "A"

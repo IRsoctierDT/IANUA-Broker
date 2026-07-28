@@ -40,7 +40,7 @@ def test_is_loopback() -> None:
     assert is_loopback("127.0.0.1")
     assert is_loopback("::1")
     assert is_loopback("localhost")
-    assert not is_loopback("0.0.0.0")  # noqa: S104
+    assert not is_loopback("0.0.0.0")
     assert not is_loopback("192.168.1.10")
     assert not is_loopback("example.com")
 
@@ -50,7 +50,7 @@ def test_probe_refuses_non_loopback() -> None:
     with pytest.raises(NonLoopbackProbeError):
         probe_endpoint("192.168.1.10", 8000, "/mcp")
     with pytest.raises(NonLoopbackProbeError):
-        probe_endpoint("0.0.0.0", 8000, "/mcp")  # noqa: S104
+        probe_endpoint("0.0.0.0", 8000, "/mcp")
 
 
 def test_probe_loopback_closed_port_returns_false() -> None:

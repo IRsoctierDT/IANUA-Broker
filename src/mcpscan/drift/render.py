@@ -26,8 +26,10 @@ def render_terminal_drift(report: DriftReport) -> str:
     n_reg = len(report.regressions)
     n_imp = len(report.improvements)
     lines = [
-        f"AI Agentic MCPscan — drift: {len(report.entries)} change(s) "
-        f"({n_reg} regression(s), {n_imp} improvement(s))"
+        (
+            f"AI Agentic MCPscan — drift: {len(report.entries)} change(s) "
+            f"({n_reg} regression(s), {n_imp} improvement(s))"
+        )
     ]
     if not report.has_drift:
         lines.append("  No drift from baseline.")

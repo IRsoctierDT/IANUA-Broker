@@ -15,15 +15,16 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "tools" / "dogfood"))
 
-from anonymize import (  # noqa: E402
+from anonymize import (
     AnonymizeReport,
     _entropy_synthetic,
     _synthetic_for,
     anonymize,
     suggest_fixture,
 )
-from corpus import evaluate  # noqa: E402
-from mcpscan.checks.secrets import _looks_secret  # noqa: E402
+from corpus import evaluate
+
+from mcpscan.checks.secrets import _looks_secret
 
 _ANTHROPIC = "sk-ant-api03-REALdeadbeef1234567890ABCDEF"
 _HIGH_ENTROPY = "R3al-Db-Pa55word-9x2QzLmNp7Kv"
@@ -131,7 +132,7 @@ def test_repeated_secret_is_fully_replaced_and_counted() -> None:
 
 
 def test_report_holds_no_raw_value() -> None:
-    scrubbed, report = anonymize("claude", _claude_config(_ANTHROPIC))
+    _scrubbed, report = anonymize("claude", _claude_config(_ANTHROPIC))
     assert isinstance(report, AnonymizeReport)
     assert _ANTHROPIC not in repr(report)  # counts and categories only
 

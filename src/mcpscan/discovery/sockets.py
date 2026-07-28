@@ -51,7 +51,7 @@ def is_loopback(host: str) -> bool:
 
 def _is_wildcard(host: str) -> bool:
     # We are detecting a wildcard bind in scanned software, never binding here.
-    return host in {"0.0.0.0", "::", ""}  # noqa: S104  # nosec B104
+    return host in {"0.0.0.0", "::", ""}  # nosec B104
 
 
 def classify_exposure(ip: str) -> Severity | None:
@@ -101,7 +101,7 @@ def parse_lsof_listeners(output: str) -> tuple[ListeningSocket, ...]:
                 continue
             host = host.strip("[]")
             if host == "*":  # lsof's wildcard-bind notation
-                host = "0.0.0.0"  # noqa: S104  # nosec B104 (detecting, not binding)
+                host = "0.0.0.0"  # nosec B104 (detecting, not binding)
             key = (host, int(port_str), pid)
             if key in seen:
                 continue

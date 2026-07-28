@@ -341,6 +341,8 @@ def test_lan_sarif_emits_logical_locations(monkeypatch: pytest.MonkeyPatch, tmp_
         Report,
         Server,
         ServerState,
+    )
+    from mcpscan.domain import (
         Severity as Sev,
     )
     from mcpscan.lan.audit import AuditRecord

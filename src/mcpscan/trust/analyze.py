@@ -16,8 +16,8 @@ can dominate the 0–100 Trust Score.
 from __future__ import annotations
 
 from ..adapters.base import ParsedConfig, ServerDecl
-from ..checks.secrets import check_server_env
 from ..checks.pinning import check_server_pinning
+from ..checks.secrets import check_server_env
 from ..checks.tool_scope import has_broad_wildcard, is_dangerous_tool
 from ..scoring import grade_for_score, worst_grade
 from .model import (

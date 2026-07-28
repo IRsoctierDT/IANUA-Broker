@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -65,7 +65,7 @@ def test_valid_manifest_parses_all_fields() -> None:
     m = _manifest()
     assert m.authorization_id == "ENG-2026-0710"
     assert m.operator == "j.doe@example.com"
-    assert m.expires_at == datetime(2026, 7, 10, 23, 59, 59, tzinfo=timezone.utc)
+    assert m.expires_at == datetime(2026, 7, 10, 23, 59, 59, tzinfo=UTC)
     assert m.targets == ("192.168.10.20/32",)
     assert m.ports == (3000, 8000)
     assert m.signature_scheme == "ssh"  # default
@@ -123,8 +123,8 @@ def test_ed25519_scheme_is_accepted() -> None:
 
 def test_is_expired() -> None:
     m = _manifest()
-    assert m.is_expired(datetime(2026, 7, 11, tzinfo=timezone.utc))
-    assert not m.is_expired(datetime(2026, 7, 10, 12, 0, tzinfo=timezone.utc))
+    assert m.is_expired(datetime(2026, 7, 11, tzinfo=UTC))
+    assert not m.is_expired(datetime(2026, 7, 10, 12, 0, tzinfo=UTC))
 
 
 def test_missing_operator_is_error() -> None:

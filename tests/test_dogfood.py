@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "tools" / "dogfood"))
 
-from corpus import CORPUS, Fixture, evaluate  # noqa: E402
+from corpus import CORPUS, Fixture, evaluate
 
 
 @pytest.mark.parametrize("fixture", CORPUS, ids=lambda fx: fx.name)

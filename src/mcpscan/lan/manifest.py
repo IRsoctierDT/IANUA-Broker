@@ -16,7 +16,7 @@ from __future__ import annotations
 import hashlib
 import tomllib
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 _VALID_SCHEMES = ("ssh", "ed25519")
 
@@ -112,7 +112,7 @@ def _parse_expiry(value: object) -> datetime | ManifestError:
         return ManifestError("manifest field 'expires_at' is required (ISO-8601 datetime)")
     if dt.tzinfo is None:
         return ManifestError("expires_at must include a timezone (e.g. trailing 'Z')")
-    return dt.astimezone(timezone.utc)
+    return dt.astimezone(UTC)
 
 
 def _parse_targets(value: object) -> tuple[str, ...] | ManifestError:
