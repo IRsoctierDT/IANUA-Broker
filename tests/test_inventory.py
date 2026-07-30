@@ -250,7 +250,7 @@ def test_fetch_snippet_success_path_returns_sanitized_body() -> None:
     import threading
 
     class Handler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self) -> None:  # noqa: N802 - stdlib API name
+        def do_GET(self) -> None:
             body = b'{"Models": []}'
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))

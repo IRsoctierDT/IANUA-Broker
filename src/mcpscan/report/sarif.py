@@ -136,7 +136,7 @@ def _partial_fingerprint(finding: Finding, uri: str) -> str:
     """Stable per-result fingerprint so GitHub tracks alerts across commits."""
     line = "" if finding.location.line is None else str(finding.location.line)
     secret = "" if finding.secret is None else finding.secret.sha256_8
-    material = "\x1f".join((finding.id, uri, line, secret))
+    material = f"{finding.id}\x1f{uri}\x1f{line}\x1f{secret}"
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 

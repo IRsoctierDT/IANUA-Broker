@@ -25,8 +25,8 @@ def test_repo_has_no_serious_findings() -> None:
 
 def test_no_listening_socket_opened_by_import() -> None:
     # Importing the tool must not open a server port (it exposes no surface).
-    import mcpscan  # noqa: F401
-    import mcpscan.cli  # noqa: F401
+    import mcpscan
+    import mcpscan.cli
     import mcpscan.engine  # noqa: F401
 
     # If any import bound a socket this would be observable; the absence of

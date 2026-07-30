@@ -41,8 +41,8 @@ from pathlib import Path
 # exactly what the scanner flags — never more, never less.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-from mcpscan.checks.secrets import _looks_secret, shannon_entropy  # noqa: E402
-from mcpscan.engine import _adapters  # noqa: E402
+from mcpscan.checks.secrets import _looks_secret, shannon_entropy
+from mcpscan.engine import _adapters
 
 # A deterministic synthetic for each provider pattern: same shape, obviously fake
 # (the value is literally the word "SYNTHETIC" padded to a matching length), so

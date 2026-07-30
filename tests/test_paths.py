@@ -80,16 +80,20 @@ def test_windsurf_missing_home_yields_no_paths() -> None:
 def test_cline_paths_macos() -> None:
     paths = [str(p) for p in cline_config_candidates("Darwin", {"HOME": "/Users/jane"})]
     assert paths == [
-        "/Users/jane/Library/Application Support/Code/User/globalStorage/"
-        "saoudrizwan.claude-dev/settings/cline_mcp_settings.json"
+        (
+            "/Users/jane/Library/Application Support/Code/User/globalStorage/"
+            "saoudrizwan.claude-dev/settings/cline_mcp_settings.json"
+        )
     ]
 
 
 def test_cline_paths_linux() -> None:
     paths = [str(p) for p in cline_config_candidates("Linux", {"HOME": "/home/jane"})]
     assert paths == [
-        "/home/jane/.config/Code/User/globalStorage/"
-        "saoudrizwan.claude-dev/settings/cline_mcp_settings.json"
+        (
+            "/home/jane/.config/Code/User/globalStorage/"
+            "saoudrizwan.claude-dev/settings/cline_mcp_settings.json"
+        )
     ]
 
 

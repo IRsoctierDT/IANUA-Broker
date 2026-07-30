@@ -109,7 +109,7 @@ def test_dogfood_scan_is_deterministic(dogfood_project: Path) -> None:
 @pytest.fixture
 def live_loopback_server() -> Iterator[int]:
     class _Handler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self) -> None:  # noqa: N802 - http.server API
+        def do_GET(self) -> None:
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b"ok")

@@ -63,14 +63,14 @@ def query_osv(
     body = json.dumps(
         {"version": version, "package": {"name": name, "ecosystem": ecosystem}}
     ).encode("utf-8")
-    request = urllib.request.Request(  # noqa: S310 - fixed https OSV endpoint
+    request = urllib.request.Request(
         OSV_URL,
         data=body,
         headers={"Content-Type": "application/json"},
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as resp:  # noqa: S310  # nosec B310
+        with urllib.request.urlopen(request, timeout=timeout) as resp:  # nosec B310
             payload = json.loads(resp.read().decode("utf-8"))
     except (OSError, ValueError):
         return []

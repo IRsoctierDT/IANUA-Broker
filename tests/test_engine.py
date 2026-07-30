@@ -92,14 +92,14 @@ def test_running_socket_exposure_lands_in_report(
         engine_mod,
         "enumerate_listening",
         lambda: EnumerationResult(
-            sockets=(ListeningSocket("0.0.0.0", 8000, 100, "node"),),  # noqa: S104
+            sockets=(ListeningSocket("0.0.0.0", 8000, 100, "node"),),
             inspection_incomplete=False,
         ),
     )
     report = scan(roots=[tmp_path], system="Linux", env={}, enumerate_sockets=True)
     running = [s for s in report.servers if s.running]
     assert len(running) == 1
-    assert running[0].bind_addr == "0.0.0.0"  # noqa: S104
+    assert running[0].bind_addr == "0.0.0.0"
     assert running[0].state is ServerState.RUNNING
     assert any(f.dimension is Dimension.EXPOSURE for f in running[0].findings)
 

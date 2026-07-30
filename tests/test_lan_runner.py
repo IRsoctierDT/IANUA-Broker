@@ -8,7 +8,7 @@ import socket
 import sys
 import threading
 import types
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -26,7 +26,7 @@ expires_at = 2026-07-10T23:59:59Z
 targets = ["192.168.10.20/32"]
 ports = [3000, 8000]
 """
-NOW = datetime(2026, 7, 10, 9, 0, 0, tzinfo=timezone.utc)  # before expiry
+NOW = datetime(2026, 7, 10, 9, 0, 0, tzinfo=UTC)  # before expiry
 
 
 def _ok_verifier(*_a: object) -> VerifyResult:
@@ -213,7 +213,7 @@ def test_verify_ssh_subprocess_error(monkeypatch) -> None:  # type: ignore[no-un
 # --- probe (real socket, loopback only — no external network) ---
 def test_tcp_probe_reachable_mcp() -> None:
     class _H(http.server.BaseHTTPRequestHandler):
-        def do_GET(self) -> None:  # noqa: N802
+        def do_GET(self) -> None:
             self.send_response(200)
             self.end_headers()
 
@@ -264,7 +264,7 @@ def test_happy_path_finds_exposed_servers() -> None:
 
 
 def test_expired_manifest_is_refused() -> None:
-    out = _run(now=datetime(2026, 7, 11, tzinfo=timezone.utc))
+    out = _run(now=datetime(2026, 7, 11, tzinfo=UTC))
     assert isinstance(out, LanRefusal) and "expired" in out.reason
 
 

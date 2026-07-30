@@ -34,8 +34,10 @@ def test_non_object_root_is_parse_error() -> None:
 def test_default_config_paths_is_global_cline_file() -> None:
     paths = [str(p) for p in ClineAdapter().default_config_paths("Linux", {"HOME": "/home/j"})]
     assert paths == [
-        "/home/j/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/"
-        "cline_mcp_settings.json"
+        (
+            "/home/j/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/"
+            "cline_mcp_settings.json"
+        )
     ]
 
 

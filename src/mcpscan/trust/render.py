@@ -14,8 +14,10 @@ def render_terminal_trust(report: TrustReport, opts: RenderOptions) -> str:
     """Human-readable trust report, lowest Trust Score first."""
     n_risky = len(report.risky)
     lines = [
-        f"AI Agentic MCPscan — agent trust: {len(report.profiles)} tool(s), "
-        f"overall {report.overall_grade}; {n_risky} with risk relationship(s)"
+        (
+            f"AI Agentic MCPscan — agent trust: {len(report.profiles)} tool(s), "
+            f"overall {report.overall_grade}; {n_risky} with risk relationship(s)"
+        )
     ]
     if not report.profiles:
         lines.append("  No MCP servers found to analyze.")

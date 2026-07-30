@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import UTC
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -273,13 +274,13 @@ def _posture_snapshot(args: argparse.Namespace) -> Snapshot:
 
 def _run_baseline(args: argparse.Namespace) -> int:
     """Write a signed-by-digest posture snapshot (Tier 5)."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from .drift import render_baseline
     from .report.writer import write_report
 
     snapshot = _posture_snapshot(args)
-    created_at = datetime.now(timezone.utc).isoformat()
+    created_at = datetime.now(UTC).isoformat()
     text = render_baseline(snapshot, created_at=created_at)
 
     if args.out is not None:
@@ -424,7 +425,7 @@ def _run_scan(args: argparse.Namespace) -> int:
 
 def _run_lan(args: argparse.Namespace) -> int:
     """The authorized network-assessment command ('lan')."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from . import __version__
     from .lan import LanRefusal, run_lan
@@ -469,7 +470,7 @@ def _run_lan(args: argparse.Namespace) -> int:
 
     outcome = run_lan(
         manifest_bytes=manifest_bytes,
-        now=datetime.now(timezone.utc),
+        now=datetime.now(UTC),
         invoker=args.invoker,
         tool_version=__version__,
         argv=sys.argv,

@@ -6,14 +6,14 @@ import json
 import sys
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 import pytest
 
 from mcpscan.checks.pinning import PackageSpec, parse_package_spec
+from mcpscan.engine import scan
 from mcpscan.enrichment import osv as osv_mod
 from mcpscan.enrichment.osv import OsvVuln, parse_osv_response, query_osv
-from mcpscan.engine import scan
 
 PINNED_CONFIG = {
     "mcpServers": {
@@ -88,7 +88,7 @@ class _FakeHttpResp:
     def __init__(self, payload: object) -> None:
         self._payload = payload
 
-    def __enter__(self) -> _FakeHttpResp:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc: object) -> bool:

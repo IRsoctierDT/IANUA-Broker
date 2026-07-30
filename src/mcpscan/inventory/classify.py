@@ -147,7 +147,7 @@ def classify_socket(sock: ListeningSocket, fetch: SnippetFetch | None = None) ->
 
 def _probeable(ip: str) -> bool:
     """True if the service is reachable via loopback (loopback or wildcard bind)."""
-    return ip in {"0.0.0.0", "::", ""} or _is_loopback(ip)  # noqa: S104  # nosec B104
+    return ip in {"0.0.0.0", "::", ""} or _is_loopback(ip)  # nosec B104
 
 
 def _is_loopback(ip: str) -> bool:
