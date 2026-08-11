@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Unit tests for OS-aware path resolution (T-103, NFR-X1)."""
 
 from __future__ import annotations

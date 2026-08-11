@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Tests for the LAN wiring: verify, probe, and the run_lan orchestration gate."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Engine + Claude adapter integration tests (T-204/205, golden/clean — T-212)."""
 
 from __future__ import annotations

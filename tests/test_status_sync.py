@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Guard: docs/STATUS.md must stay in sync with docs/STATUS.yaml.
 
 STATUS.yaml is the source of truth; STATUS.md is a hand-maintained view. These

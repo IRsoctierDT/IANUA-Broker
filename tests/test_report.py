@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Renderer tests: JSON determinism, HTML offline-safety, redaction, paths, perms."""
 
 from __future__ import annotations

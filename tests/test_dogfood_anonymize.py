@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Dogfood anonymizer (T-402 Phase 2): scrub real configs into safe fixtures.
 
 The security-critical property: no raw secret and no username may survive

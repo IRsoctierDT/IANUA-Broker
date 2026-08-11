@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Credential checks: detection, redaction in findings, and clean fixtures (T-206/207/212)."""
 
 from __future__ import annotations

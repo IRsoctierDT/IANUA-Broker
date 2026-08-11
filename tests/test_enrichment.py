@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Online enrichment + offline-isolation guarantees (T-401, NFR-SEC1, R2)."""
 
 from __future__ import annotations

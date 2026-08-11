@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Dogfood corpus as a CI regression gate (T-402).
 
 Runs the curated clean+messy corpus (tools/dogfood/corpus.py) through the real

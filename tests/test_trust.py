@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Tier-4 agent trust: factor scoring, risk relationships, grading, rendering."""
 
 from __future__ import annotations

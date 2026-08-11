@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """SARIF 2.1.0 renderer tests: shape, level/severity mapping, redaction, URIs."""
 
 from __future__ import annotations

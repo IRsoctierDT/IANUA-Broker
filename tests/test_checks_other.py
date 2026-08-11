@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Exposure, tool-scope, pinning, and scoring checks with clean fixtures (T-202/208/209/210/212)."""
 
 from __future__ import annotations

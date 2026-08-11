@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Enumeration logic tests via a psutil mock (T-201, FR-D1).
 
 The ``psutil`` stand-in lives in ``conftest.py`` (``fake_psutil`` / ``make_conn``

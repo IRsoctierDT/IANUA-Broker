@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Tier-2 atlas: mapping-table completeness, citation hygiene, rendering."""
 
 from __future__ import annotations

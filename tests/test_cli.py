@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """CLI wiring tests (help, scan summary, exit codes, report writing, warnings)."""
 
 from __future__ import annotations

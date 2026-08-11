@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Tier-5 drift: snapshot building, diff direction, baseline integrity, rendering."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Shared test fixtures and factories.
 
 Centralizes the ``Report``/``Finding`` builders and the psutil mock that were

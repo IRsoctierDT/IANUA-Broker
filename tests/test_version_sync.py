@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Guard: the exported version resolves to pyproject.toml (T-407 release safety).
 
 ``mcpscan.__version__`` is derived from the installed package metadata
