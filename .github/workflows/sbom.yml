@@ -1,8 +1,11 @@
 name: SBOM & Checksums
 
-# On a published Release, attach a CycloneDX SBOM and SHA-256 checksums as
-# release assets. Independent of release.yml (the publish path) so it can never
-# affect publishing.
+# On a Release published by a human, attach a CycloneDX SBOM and SHA-256
+# checksums as release assets. NOTE: release-please's own releases are created
+# with GITHUB_TOKEN and therefore do NOT trigger `on: release` workflows — the
+# automated path attaches its own SBOM + checksums inside release-please.yml's
+# publish job. This workflow only covers manually published Releases and is a
+# candidate for removal.
 
 on:
   release:
