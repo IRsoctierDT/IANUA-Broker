@@ -89,7 +89,13 @@ def test_dogfood_discovers_servers_with_expected_findings(dogfood_project: Path)
     assert findings["yolo-shell"] == {"SCOPE-DANGEROUS-AUTOAPPROVE"}
     assert findings["good-citizen"] == set()  # a clean server must stay silent
     assert findings["permissions"] == {"SCOPE-DANGEROUS-ALLOW"}
-    assert findings[".env"] == {"CRED-PERMS", "CRED-PLAINTEXT"}
+    # CRED-PERMS (world/group-readable) is a POSIX mode concept; on Windows the
+    # fixture's chmod is a no-op and the engine reports no meaningful mode, so
+    # only the plaintext secret is flagged there.
+    expected_env = {"CRED-PLAINTEXT"}
+    if os.name == "posix":
+        expected_env.add("CRED-PERMS")
+    assert findings[".env"] == expected_env
 
 
 def test_dogfood_grades_match_rubric(dogfood_project: Path) -> None:
