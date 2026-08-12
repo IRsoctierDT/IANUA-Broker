@@ -257,6 +257,39 @@ def test_default_scan_omits_process_env_note_and_reads_nothing(
     assert "inspect-process-env" not in capsys.readouterr().err
 
 
+# --- telemetry / logging-health inspection wiring (Wave 3 Feature L) ---
+def test_inspect_telemetry_discloses_and_flags_absent(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    from mcpscan.adapters.claude import ClaudeAdapter
+    from mcpscan.discovery.sockets import EnumerationResult
+
+    monkeypatch.setattr(engine_mod, "enumerate_listening", lambda: EnumerationResult(sockets=()))
+    # Force a telemetry surface on any OS (Claude has no Linux log path): an
+    # absent directory under tmp_path -> TELEMETRY-ABSENT.
+    missing = tmp_path / "Logs" / "Claude"
+    monkeypatch.setattr(ClaudeAdapter, "telemetry_surfaces", lambda self, system, env: [missing])
+
+    rc = main(["scan", "--inspect-telemetry", "--root", str(tmp_path)])
+    captured = capsys.readouterr()
+    assert rc == 0  # TELEMETRY-ABSENT is LOW -> non-blocking at the default gate
+    assert "telemetry://" in captured.out
+    assert "Agent-host log surface absent or empty" in captured.out
+    assert "no log contents are read" in captured.err
+
+
+def test_default_scan_omits_telemetry_note(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    make_report: Callable[..., Report],
+) -> None:
+    monkeypatch.setattr(engine_mod, "scan", lambda **_: make_report())
+    main(["scan"])
+    assert "inspect-telemetry" not in capsys.readouterr().err
+
+
 # --- emit alert-layer wiring (Wave 2 Feature E) ---
 def test_scan_emit_ndjson_writes_redacted_line(
     monkeypatch: pytest.MonkeyPatch,

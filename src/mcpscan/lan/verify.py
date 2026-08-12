@@ -46,12 +46,16 @@ def verify_ssh(
     signature_path: Path,
     allowed_signers: Path,
     operator: str,
+    *,
+    namespace: str = SSH_NAMESPACE,
 ) -> VerifyResult:
     """Verify a detached SSH signature over the manifest via ``ssh-keygen``.
 
     Runs ``ssh-keygen -Y verify`` with a fixed argument vector (no shell), the
     signature and allowed-signers files, the operator identity, and a fixed
-    namespace. The manifest bytes are fed on stdin so the signature binds to the
+    ``namespace`` (defaults to the LAN manifest namespace; the data-pack channel
+    passes its own so a signature minted for one context never verifies in the
+    other). The manifest bytes are fed on stdin so the signature binds to the
     exact content that was parsed.
     """
     cmd = [
@@ -63,7 +67,7 @@ def verify_ssh(
         "-I",
         operator,
         "-n",
-        SSH_NAMESPACE,
+        namespace,
         "-s",
         str(signature_path),
     ]

@@ -14,11 +14,27 @@ import ipaddress
 import shutil
 import subprocess  # nosec B404
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
 from ..domain import Severity
 
 _LOOPBACK_NAMES = {"localhost"}
+
+
+class ReachTier(Enum):
+    """How far a bind address is reachable, from least to most exposed.
+
+    A refinement of the old binary loopback/not-loopback split: ``PRIVATE_LAN``
+    (an RFC-1918 / link-local / ULA address, reachable by other hosts on the same
+    network) is a materially different blast radius from ``PUBLIC_ROUTABLE`` or a
+    ``WILDCARD`` bind (reachable from any network).
+    """
+
+    LOOPBACK = "loopback"
+    PRIVATE_LAN = "private_lan"
+    PUBLIC_ROUTABLE = "public_routable"
+    WILDCARD = "wildcard"
 
 
 @dataclass(frozen=True)
@@ -54,24 +70,51 @@ def _is_wildcard(host: str) -> bool:
     return host in {"0.0.0.0", "::", ""}  # nosec B104
 
 
-def classify_exposure(ip: str) -> Severity | None:
-    """Classify a bind address's exposure.
+def classify_reachability(ip: str) -> ReachTier:
+    """Classify how far a bind address is reachable into a :class:`ReachTier`.
 
-    Returns ``None`` for loopback (no exposure), else the severity of binding to
-    a non-loopback interface. A wildcard or routable bind is reachable beyond the
-    host and is treated as ``CRITICAL``.
+    Pure, no I/O. Loopback (address or name) is ``LOOPBACK``; a wildcard bind
+    (``0.0.0.0``/``::``/empty) is ``WILDCARD``; a private, link-local, or ULA
+    address is ``PRIVATE_LAN``; any other parseable (global) address is
+    ``PUBLIC_ROUTABLE``. An unparseable address is treated as ``PUBLIC_ROUTABLE``
+    — conservatively assuming the worst rather than ignoring it.
     """
     if is_loopback(ip):
-        return None
+        return ReachTier.LOOPBACK
     if _is_wildcard(ip):
-        return Severity.CRITICAL
+        return ReachTier.WILDCARD
     try:
-        ipaddress.ip_address(ip)
+        addr = ipaddress.ip_address(ip)
     except ValueError:
-        return Severity.HIGH  # unparseable bind addr — flag conservatively
-    # Parseable, non-loopback (guarded above), non-wildcard: reachable beyond
-    # the host.
-    return Severity.CRITICAL
+        return ReachTier.PUBLIC_ROUTABLE  # unparseable — assume worst
+    # The unspecified address has many spellings (0.0.0.0, ::, ::0, 0::0, the
+    # fully-expanded all-zeros form); `is_unspecified` catches them all, where
+    # the fast string check above only covers the canonical two.
+    if addr.is_unspecified:
+        return ReachTier.WILDCARD
+    if addr.is_private or addr.is_link_local:
+        return ReachTier.PRIVATE_LAN
+    return ReachTier.PUBLIC_ROUTABLE
+
+
+# Severity a reachability tier maps to (loopback is not a finding at all).
+_TIER_SEVERITY: dict[ReachTier, Severity | None] = {
+    ReachTier.LOOPBACK: None,
+    ReachTier.PRIVATE_LAN: Severity.HIGH,
+    ReachTier.PUBLIC_ROUTABLE: Severity.CRITICAL,
+    ReachTier.WILDCARD: Severity.CRITICAL,
+}
+
+
+def classify_exposure(ip: str) -> Severity | None:
+    """Classify a bind address's exposure severity, on top of the reach tier.
+
+    Returns ``None`` for a loopback bind (no exposure). A private-LAN bind is
+    ``HIGH`` (reachable by other hosts on the same network); a public-routable or
+    wildcard bind is ``CRITICAL`` (reachable from any network). An unparseable
+    address classifies as public-routable and is therefore ``CRITICAL``.
+    """
+    return _TIER_SEVERITY[classify_reachability(ip)]
 
 
 def parse_lsof_listeners(output: str) -> tuple[ListeningSocket, ...]:

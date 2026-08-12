@@ -140,9 +140,37 @@ def test_proc_name_denied_marks_incomplete_but_keeps_socket(
     assert result.inspection_incomplete is True
 
 
+def test_classify_reachability_per_tier() -> None:
+    # Each reachability tier is derived purely from the address.
+    assert sockets.classify_reachability("127.0.0.1") is sockets.ReachTier.LOOPBACK
+    assert sockets.classify_reachability("localhost") is sockets.ReachTier.LOOPBACK
+    assert sockets.classify_reachability("::1") is sockets.ReachTier.LOOPBACK
+    assert sockets.classify_reachability("0.0.0.0") is sockets.ReachTier.WILDCARD
+    assert sockets.classify_reachability("::") is sockets.ReachTier.WILDCARD
+    assert sockets.classify_reachability("") is sockets.ReachTier.WILDCARD
+    # Non-canonical IPv6 unspecified spellings are also wildcard, not private-LAN.
+    assert sockets.classify_reachability("::0") is sockets.ReachTier.WILDCARD
+    assert sockets.classify_reachability("0::0") is sockets.ReachTier.WILDCARD
+    assert (
+        sockets.classify_reachability("0000:0000:0000:0000:0000:0000:0000:0000")
+        is sockets.ReachTier.WILDCARD
+    )
+    assert sockets.classify_reachability("192.168.1.10") is sockets.ReachTier.PRIVATE_LAN
+    assert sockets.classify_reachability("10.0.0.5") is sockets.ReachTier.PRIVATE_LAN
+    assert (
+        sockets.classify_reachability("169.254.1.1") is sockets.ReachTier.PRIVATE_LAN
+    )  # link-local
+    assert sockets.classify_reachability("fd00::1") is sockets.ReachTier.PRIVATE_LAN  # ULA
+    assert sockets.classify_reachability("8.8.8.8") is sockets.ReachTier.PUBLIC_ROUTABLE
+    # Unparseable is conservatively treated as public-routable.
+    assert sockets.classify_reachability("not-an-ip") is sockets.ReachTier.PUBLIC_ROUTABLE
+
+
 def test_classify_exposure_branches() -> None:
-    # Loopback -> no exposure; wildcard/routable -> CRITICAL; unparseable -> HIGH.
+    # Loopback -> no exposure; private-LAN -> HIGH; wildcard/public -> CRITICAL;
+    # unparseable -> CRITICAL (classified conservatively as public-routable).
     assert sockets.classify_exposure("127.0.0.1") is None
     assert sockets.classify_exposure("0.0.0.0") is Severity.CRITICAL
-    assert sockets.classify_exposure("192.168.1.10") is Severity.CRITICAL
-    assert sockets.classify_exposure("not-an-ip") is Severity.HIGH
+    assert sockets.classify_exposure("192.168.1.10") is Severity.HIGH
+    assert sockets.classify_exposure("8.8.8.8") is Severity.CRITICAL
+    assert sockets.classify_exposure("not-an-ip") is Severity.CRITICAL

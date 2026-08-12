@@ -152,6 +152,23 @@ class HostAdapter(ABC):
         """
         return []
 
+    def telemetry_surfaces(self, system: str, env: Mapping[str, str]) -> list[PurePath]:
+        """Return candidate agent-host log / telemetry-config locations for this host.
+
+        This is the seam the opt-in ``TELEMETRY`` check family (Wave 3 Feature L)
+        reads to judge logging health: an absent/empty log surface means adversary
+        actions on the host go uncaptured, a group/world-readable log leaks the
+        audit trail, and a long-stale log means logging silently stopped.
+
+        Default is ``[]`` — a host with no documented, well-known log location
+        contributes nothing rather than inventing a path (the same conservative
+        stance as :meth:`credential_artifact_paths`). A returned path is a
+        *candidate* (file or directory): the caller checks what exists. Pure
+        (computed from ``system``/``env``); no I/O. Only log *metadata* is ever
+        read downstream — never the log contents.
+        """
+        return []
+
     @abstractmethod
     def parse(self, path: str, raw: str) -> ParsedConfig:
         """Parse raw config text into a :class:`ParsedConfig`.

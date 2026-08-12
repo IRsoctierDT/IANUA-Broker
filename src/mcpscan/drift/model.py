@@ -63,6 +63,7 @@ class DriftCause(Enum):
     EXPOSURE_DRIFT = "exposure_drift"  # network exposure change
     INSPECTION_REGRESSION = "inspection_regression"  # scanner lost visibility it had
     INVENTORY_DRIFT = "inventory_drift"  # an inventoried asset appeared/disappeared
+    TOOL_IDENTITY_DRIFT = "tool_identity_drift"  # same server name, changed code/tools (rug-pull)
     OTHER = "other"
 
 

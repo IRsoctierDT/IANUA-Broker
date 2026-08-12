@@ -27,6 +27,7 @@ class TrustFactor(Enum):
     TOOL_PRIVILEGE = "tool_privilege"  # dangerous / wildcard tool grants
     AUTONOMY = "autonomy"  # auto-approves tools (acts without a human gate)
     CODE_PROVENANCE = "code_provenance"  # runs unpinned / remotely-fetched code
+    EXPOSURE_REACH = "exposure_reach"  # binds to a network-reachable address
 
 
 @dataclass(frozen=True)

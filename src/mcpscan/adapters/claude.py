@@ -19,7 +19,11 @@ from .base import (
     coerce_str_list,
     parse_mcp_servers,
 )
-from .paths import claude_config_candidates, claude_credential_candidates
+from .paths import (
+    claude_config_candidates,
+    claude_credential_candidates,
+    claude_telemetry_candidates,
+)
 
 
 class ClaudeAdapter(HostAdapter):
@@ -36,6 +40,10 @@ class ClaudeAdapter(HostAdapter):
     def credential_artifact_paths(self, system: str, env: Mapping[str, str]) -> list[PurePath]:
         # Claude Code's ``~/.claude/.credentials.json`` OAuth token store.
         return claude_credential_candidates(system, env)
+
+    def telemetry_surfaces(self, system: str, env: Mapping[str, str]) -> list[PurePath]:
+        # Claude Desktop's per-OS agent/MCP log directory (Feature L registry seam).
+        return claude_telemetry_candidates(system, env)
 
     def parse(self, path: str, raw: str) -> ParsedConfig:
         try:

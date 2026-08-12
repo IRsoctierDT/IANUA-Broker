@@ -22,7 +22,7 @@ from .model import (
     PostureFact,
     Snapshot,
 )
-from .snapshot import build_snapshot, snapshot_digest
+from .snapshot import build_snapshot, snapshot_digest, tool_identity
 from .staleness import StalenessVerdict, assess_staleness
 
 __all__ = [
@@ -43,4 +43,5 @@ __all__ = [
     "load_baseline",
     "render_baseline",
     "snapshot_digest",
+    "tool_identity",
 ]

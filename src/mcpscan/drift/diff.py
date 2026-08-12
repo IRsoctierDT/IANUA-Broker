@@ -12,6 +12,10 @@ for each change so a CI gate can act on regressions only:
   the scanner **lost visibility it previously had**. No finding appeared, which
   is exactly why it matters: silent collection failure is the more dangerous
   half of drift. The reverse flip (visibility regained) is an IMPROVEMENT;
+- a declared server whose ``tool_identity`` fingerprint changed under the **same
+  name** is a REGRESSION — same server, silently changed code/tools (a possible
+  rug-pull). Like visibility loss it must never render green, so it outranks an
+  exposure improvement that happens in the same scan;
 - everything else — a new/removed asset, a declared server appearing — is
   INFORMATIONAL.
 
@@ -28,7 +32,10 @@ core regression signal.
 Compatibility: baselines written before the ``inspection_incomplete`` detail
 key existed are treated as if the key were ``"false"`` — an old fact lacking
 the key diffs clean against a current fact that says ``"false"``, so upgrading
-the scanner never manufactures phantom drift.
+the scanner never manufactures phantom drift. The ``tool_identity`` key (Wave 3)
+has no natural default, so it is *compat-optional*: it is dropped from the
+comparison whenever either side omits it, making a pre-Wave-3 baseline diff
+clean against a current fact that now carries an identity.
 """
 
 from __future__ import annotations
@@ -54,6 +61,13 @@ def _inspection_incomplete(fact: PostureFact) -> bool:
     return fact.detail_map().get("inspection_incomplete", "false") == "true"
 
 
+# Detail keys that arrived without a natural default value, so they cannot be
+# back-filled the way ``inspection_incomplete`` is. They are dropped from the
+# comparison whenever either side lacks them, so a baseline predating the key
+# never manufactures phantom drift ("absent == unchanged").
+_COMPAT_OPTIONAL_KEYS: tuple[str, ...] = ("tool_identity",)
+
+
 def _comparable_detail(fact: PostureFact) -> tuple[tuple[str, str], ...]:
     """A fact's detail with compat defaults filled in, for change comparison.
 
@@ -66,6 +80,39 @@ def _comparable_detail(fact: PostureFact) -> tuple[tuple[str, str], ...]:
     detail = fact.detail_map()
     detail.setdefault("inspection_incomplete", "false")
     return tuple(sorted(detail.items()))
+
+
+def _aligned_details(
+    before: PostureFact, after: PostureFact
+) -> tuple[tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]]:
+    """The two facts' comparable details, with compat-optional keys aligned.
+
+    A compat-optional key (e.g. ``tool_identity``) is stripped from **both** sides
+    when **either** side omits it. That makes "absent == unchanged": a pre-Wave-3
+    baseline that never recorded ``tool_identity`` diffs clean against a current
+    fact that now carries one, so an upgrade never manufactures a phantom
+    rug-pull. When both sides carry the key, a real change survives and drives a
+    CHANGED entry.
+    """
+    b = dict(_comparable_detail(before))
+    a = dict(_comparable_detail(after))
+    for key in _COMPAT_OPTIONAL_KEYS:
+        if key not in b or key not in a:
+            b.pop(key, None)
+            a.pop(key, None)
+    return tuple(sorted(b.items())), tuple(sorted(a.items()))
+
+
+def _tool_identity_changed(before: PostureFact, after: PostureFact) -> bool:
+    """True when a same-named server's launch fingerprint changed (possible rug-pull).
+
+    Only a change between two *present* identities counts. An identity present on
+    one side and absent on the other is a schema-era difference, not a rug-pull,
+    so it is ignored (see :func:`_aligned_details`).
+    """
+    before_id = before.detail_map().get("tool_identity")
+    after_id = after.detail_map().get("tool_identity")
+    return before_id is not None and after_id is not None and before_id != after_id
 
 
 def _finding_cause(fact: PostureFact) -> DriftCause:
@@ -116,6 +163,11 @@ def _classify_changed(before: PostureFact, after: PostureFact) -> tuple[Directio
         return Direction.REGRESSION, DriftCause.INSPECTION_REGRESSION
     if was != "exposed" and now == "exposed":
         return Direction.REGRESSION, DriftCause.EXPOSURE_DRIFT
+    if _tool_identity_changed(before, after):
+        # Same server name, changed command/args/auto-approve: a possible
+        # rug-pull. A regression even when nothing else moved, and it must never
+        # render green because the server also happened to stop being exposed.
+        return Direction.REGRESSION, DriftCause.TOOL_IDENTITY_DRIFT
     if was == "exposed" and now != "exposed":
         return Direction.IMPROVEMENT, DriftCause.EXPOSURE_DRIFT
     if was_dark and not now_dark:
@@ -161,7 +213,7 @@ def diff_snapshots(baseline: Snapshot, current: Snapshot) -> DriftReport:
 
     for key in old.keys() & new.keys():
         before, after = old[key], new[key]
-        detail_before, detail_after = _comparable_detail(before), _comparable_detail(after)
+        detail_before, detail_after = _aligned_details(before, after)
         if detail_before == detail_after:
             continue
         direction, cause = _classify_changed(before, after)

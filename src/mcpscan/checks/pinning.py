@@ -22,7 +22,8 @@ _NPM_RUNNERS = {"npx", "pnpx", "bunx"}
 _PYPI_RUNNERS = {"uvx", "pipx", "pip"}
 
 
-def _package_args(args: tuple[str, ...]) -> list[str]:
+def package_args(args: tuple[str, ...]) -> list[str]:
+    """The non-flag positional args (drops anything starting with ``-``)."""
     return [a for a in args if not a.startswith("-")]
 
 
@@ -35,11 +36,32 @@ class PackageSpec:
     version: str
 
 
+def coord_from_arg(arg: str, ecosystem: str) -> PackageSpec | None:
+    """Parse one ``name@version`` (npm) / ``name==version`` (PyPI) token (pure).
+
+    Returns ``None`` unless the token carries a concrete version, so online
+    enrichment only ever sends a fully-pinned coordinate (review F3). Shared by
+    the single-spec :func:`parse_package_spec` and the multi-coord extractor in
+    ``checks.versions``.
+    """
+    if ecosystem == "npm" and "@" in arg.lstrip("@"):
+        name, _, version = arg.rpartition("@")
+        if name and version and version[0].isdigit():
+            return PackageSpec(ecosystem, name, version)
+    elif ecosystem == "PyPI" and "==" in arg:
+        name, _, version = arg.partition("==")
+        if name and version:
+            return PackageSpec(ecosystem, name, version)
+    return None
+
+
 def parse_package_spec(command: str | None, args: tuple[str, ...]) -> PackageSpec | None:
     """Extract an ecosystem/name/version from a runner command + args.
 
     Returns ``None`` unless a concrete version is present (so online enrichment
-    only ever sends a fully-pinned coordinate — review F3).
+    only ever sends a fully-pinned coordinate — review F3). This is the single
+    *runner* spec only; ``checks.versions.extract_version_coords`` finds every
+    coordinate a command carries.
     """
     runner = (command or "").rsplit("/", 1)[-1]
     if runner in _NPM_RUNNERS:
@@ -49,15 +71,10 @@ def parse_package_spec(command: str | None, args: tuple[str, ...]) -> PackageSpe
     else:
         return None
 
-    for arg in _package_args(args):
-        if ecosystem == "npm" and "@" in arg.lstrip("@"):
-            name, _, version = arg.rpartition("@")
-            if name and version and version[0].isdigit():
-                return PackageSpec(ecosystem, name, version)
-        elif ecosystem == "PyPI" and "==" in arg:
-            name, _, version = arg.partition("==")
-            if name and version:
-                return PackageSpec(ecosystem, name, version)
+    for arg in package_args(args):
+        spec = coord_from_arg(arg, ecosystem)
+        if spec is not None:
+            return spec
     return None
 
 
@@ -91,7 +108,7 @@ def check_server_pinning(server: ServerDecl, config_path: str) -> list[Finding]:
     if command not in _FLOATING_RUNNERS:
         return []
 
-    packages = _package_args(server.args)
+    packages = package_args(server.args)
     if not packages:
         return []
 

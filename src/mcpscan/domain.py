@@ -129,6 +129,12 @@ class Server:
     running: bool
     inspection_incomplete: bool = False
     findings: tuple[Finding, ...] = field(default_factory=tuple)
+    # A stable, secret-free fingerprint of a declared server's launch identity
+    # (command + args + auto-approve), set by the engine for config-declared
+    # servers only. Drift uses it to catch a rug-pull — the same server name
+    # whose code/tools silently changed. ``None`` for sockets/process/env
+    # servers, which have no declared launch identity.
+    tool_identity: str | None = None
 
 
 @dataclass(frozen=True)

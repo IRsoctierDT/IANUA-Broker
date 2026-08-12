@@ -11,6 +11,7 @@ profile carries a credential count, never a value.
 from .analyze import (
     analyze_config,
     apply_shared_credentials,
+    bind_hint,
     build_trust_report,
     config_credential_fingerprints,
     profile_server,
@@ -32,6 +33,7 @@ __all__ = [
     "TrustReport",
     "analyze_config",
     "apply_shared_credentials",
+    "bind_hint",
     "build_trust_report",
     "collect_trust",
     "config_credential_fingerprints",

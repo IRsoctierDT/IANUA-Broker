@@ -76,6 +76,14 @@ _CIS_APPSEC = FrameworkRef(Framework.CIS, "Control 16", "Application Software Se
 _SUPPLY_CHAIN = FrameworkRef(
     Framework.ATTACK, "T1195.002", "Supply Chain Compromise: Compromise Software Supply Chain"
 )
+# A known-vulnerable *dependency* named on the launch command (Wave 3 Feature V):
+# the sub-technique for a compromised software dependency, not the wider supply
+# chain, leads the VULN-KNOWN citation.
+_SUPPLY_DEPS = FrameworkRef(
+    Framework.ATTACK,
+    "T1195.001",
+    "Supply Chain Compromise: Compromise Software Dependencies and Development Tools",
+)
 _ATLAS_SUPPLY = FrameworkRef(Framework.ATLAS, "AML.T0010", "ML Supply Chain Compromise")
 _LLM_SUPPLY = FrameworkRef(Framework.OWASP_LLM, "LLM03", "Supply Chain")
 
@@ -93,6 +101,24 @@ _STEAL_APP_TOKEN = FrameworkRef(Framework.ATTACK, "T1528", "Steal Application Ac
 _CMD_INTERPRETER = FrameworkRef(Framework.ATTACK, "T1059", "Command and Scripting Interpreter")
 _ELEVATION = FrameworkRef(Framework.ATTACK, "T1548", "Abuse Elevation Control Mechanism")
 _LLM_AGENCY = FrameworkRef(Framework.OWASP_LLM, "LLM06", "Excessive Agency")
+
+# Static tool-poisoning heuristics (Wave 3 Feature T). Hidden Unicode is
+# obfuscation that conceals the payload from a reviewer; an injected instruction
+# impersonates a trusted role to hijack the agent. Both are LLM prompt injection
+# in the ATLAS/OWASP-LLM sense.
+_OBFUSCATION = FrameworkRef(Framework.ATTACK, "T1027", "Obfuscated Files or Information")
+_IMPERSONATION = FrameworkRef(Framework.ATTACK, "T1656", "Impersonation")
+_ATLAS_PROMPT_INJECTION = FrameworkRef(Framework.ATLAS, "AML.T0051", "LLM Prompt Injection")
+_LLM_PROMPT_INJECTION = FrameworkRef(Framework.OWASP_LLM, "LLM01", "Prompt Injection")
+
+# Agent-host logging health (Wave 3 Feature L). Absent/stale logging is the
+# silent-log-collection-failure the report ties to Impair Defenses (T1562.003);
+# a group/world-readable log both exposes and lets an adversary tamper with the
+# audit trail. CIS Control 8 (Audit Log Management) is the direct control match.
+_IMPAIR_LOGGING = FrameworkRef(
+    Framework.ATTACK, "T1562.003", "Impair Defenses: Impair Command History Logging"
+)
+_CIS_AUDIT_LOG = FrameworkRef(Framework.CIS, "Control 8", "Audit Log Management")
 
 # --- the mapping table --------------------------------------------------------
 # Key: the finding id a check emits. Value: its citations, strongest-first.
@@ -132,11 +158,33 @@ MAPPINGS: dict[str, tuple[FrameworkRef, ...]] = {
     # version pinning / supply chain
     "PIN-UNPINNED": (_SUPPLY_CHAIN, _ATLAS_SUPPLY, _LLM_SUPPLY, _RMF_MAP, _CIS_APPSEC),
     "PIN-KNOWN-VULN": (_SUPPLY_CHAIN, _ATLAS_SUPPLY, _LLM_SUPPLY, _RMF_MAP, _CIS_APPSEC),
+    # a known-vulnerable dependency (not just the pinned runner) named on a
+    # server or process launch command (Wave 3 Feature V)
+    "VULN-KNOWN": (_SUPPLY_DEPS, _ATLAS_SUPPLY, _LLM_SUPPLY, _RMF_MAP, _CIS_APPSEC),
     # tool scope / agency
     "SCOPE-DANGEROUS-ALLOW": (_CMD_INTERPRETER, _LLM_AGENCY, _RMF_MANAGE, _CIS_ACCESS),
     "SCOPE-DANGEROUS-AUTOAPPROVE": (_CMD_INTERPRETER, _LLM_AGENCY, _RMF_MANAGE, _CIS_ACCESS),
     "SCOPE-WILDCARD": (_ELEVATION, _LLM_AGENCY, _RMF_MANAGE, _CIS_ACCESS),
     "SCOPE-AUTOAPPROVE-WILDCARD": (_ELEVATION, _LLM_AGENCY, _RMF_MANAGE, _CIS_ACCESS),
+    # tool integrity / poisoning (Wave 3 Feature T)
+    "TOOL-HIDDEN-UNICODE": (
+        _OBFUSCATION,
+        _ATLAS_PROMPT_INJECTION,
+        _LLM_PROMPT_INJECTION,
+        _RMF_MANAGE,
+        _CIS_APPSEC,
+    ),
+    "TOOL-INJECTION-TEXT": (
+        _IMPERSONATION,
+        _ATLAS_PROMPT_INJECTION,
+        _LLM_PROMPT_INJECTION,
+        _RMF_MANAGE,
+        _CIS_APPSEC,
+    ),
+    # agent-host logging health / telemetry (Wave 3 Feature L)
+    "TELEMETRY-ABSENT": (_IMPAIR_LOGGING, _RMF_MANAGE, _CIS_AUDIT_LOG),
+    "TELEMETRY-STALE": (_IMPAIR_LOGGING, _RMF_MANAGE, _CIS_AUDIT_LOG),
+    "TELEMETRY-PERMS": (_IMPAIR_LOGGING, _RMF_GOVERN, _CIS_AUDIT_LOG, _CIS_DATA),
 }
 
 

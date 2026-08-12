@@ -8,12 +8,14 @@ import json
 from pathlib import Path
 
 from mcpscan.adapters.base import ParsedConfig, ServerDecl
+from mcpscan.discovery.sockets import ReachTier
 from mcpscan.report import RenderOptions
 from mcpscan.trust import (
     TrustFactor,
     TrustProfile,
     analyze_config,
     apply_shared_credentials,
+    bind_hint,
     build_trust_report,
     collect_trust,
     config_credential_fingerprints,
@@ -81,6 +83,104 @@ def test_unpinned_runner_flags_provenance() -> None:
     server = ServerDecl(name="u", command="npx", args=("some-server",))  # no @version
     profile = profile_server(server, "/cfg/.mcp.json", "claude")
     assert _factor(profile, TrustFactor.CODE_PROVENANCE) == 10
+
+
+# --- EXPOSURE_REACH: network reach inferred from bind hints (Wave 3 Feature R) ---
+def test_bind_hint_parses_flags_env_and_loopback() -> None:
+    wildcard = ServerDecl(name="w", command="node", args=("serve", "--host", "0.0.0.0"))
+    assert bind_hint(wildcard) is ReachTier.WILDCARD
+    inline = ServerDecl(name="i", command="node", args=("--bind=0.0.0.0",))
+    assert bind_hint(inline) is ReachTier.WILDCARD
+    lan = ServerDecl(name="l", command="node", env=(("HOST", "192.168.1.5"),))
+    assert bind_hint(lan) is ReachTier.PRIVATE_LAN
+    loopback = ServerDecl(name="lo", command="node", args=("--host", "127.0.0.1"))
+    assert bind_hint(loopback) is None  # an explicit loopback bind is not a reach hint
+    bare = ServerDecl(name="b", command="node", args=("run", "::"))
+    assert bind_hint(bare) is ReachTier.WILDCARD  # a bare wildcard token counts
+
+
+def test_bind_hint_keeps_the_most_exposed_hint() -> None:
+    # A loopback flag and a wildcard token together resolve to the worse tier.
+    server = ServerDecl(name="m", command="node", args=("--host", "127.0.0.1", "0.0.0.0"))
+    assert bind_hint(server) is ReachTier.WILDCARD
+
+
+def test_no_bind_hint_means_no_reach_factor() -> None:
+    server = ServerDecl(name="safe", command="npx", args=("db-mcp-server@1.2.3",))
+    profile = profile_server(server, "/cfg/.mcp.json", "claude")
+    assert bind_hint(server) is None
+    assert _factor(profile, TrustFactor.EXPOSURE_REACH) == 0
+    assert TrustFactor.EXPOSURE_REACH not in {f.factor for f in profile.present_factors}
+
+
+def test_wildcard_bind_hint_scores_reach_and_lowers_trust() -> None:
+    server = ServerDecl(name="w", command="node", args=("serve", "--host", "0.0.0.0"))
+    profile = profile_server(server, "/cfg/.mcp.json", "claude")
+    assert _factor(profile, TrustFactor.EXPOSURE_REACH) == 20
+    assert profile.score == 80  # a NEW dimension: 20 off, nothing else billed
+
+
+def test_private_lan_bind_hint_scores_less_reach() -> None:
+    server = ServerDecl(name="l", command="node", env=(("BIND_ADDRESS", "10.0.0.5"),))
+    profile = profile_server(server, "/cfg/.mcp.json", "claude")
+    assert _factor(profile, TrustFactor.EXPOSURE_REACH) == 10
+    assert profile.score == 90
+
+
+def test_loopback_bind_hint_is_no_reach_factor() -> None:
+    server = ServerDecl(name="lo", command="node", args=("--host", "127.0.0.1"))
+    profile = profile_server(server, "/cfg/.mcp.json", "claude")
+    assert _factor(profile, TrustFactor.EXPOSURE_REACH) == 0
+    assert profile.score == 100
+
+
+def test_exposed_privileged_relationship_with_reach_and_privilege() -> None:
+    # Network reach + a dangerous auto-approved tool => EXPOSED-PRIVILEGED.
+    server = ServerDecl(
+        name="agent",
+        command="node",
+        args=("x@1.0.0", "--host", "0.0.0.0"),
+        auto_approve=("run_command",),
+    )
+    profile = profile_server(server, "/cfg/.mcp.json", "claude")
+    ids = _rel_ids(profile)
+    assert "EXPOSED-PRIVILEGED" in ids
+    rel = next(r for r in profile.relationships if r.id == "EXPOSED-PRIVILEGED")
+    assert rel.factors == (TrustFactor.EXPOSURE_REACH, TrustFactor.TOOL_PRIVILEGE)
+    # relationship only: score is exactly the factor sum (20 reach + 25 danger +
+    # 15 autonomy), so EXPOSED-PRIVILEGED adds no points.
+    assert profile.score == 100 - (20 + 25 + 15) == 40
+
+
+def test_exposed_privileged_needs_both_factors() -> None:
+    # Reach without any dangerous/wildcard tool grant => no EXPOSED-PRIVILEGED.
+    reach_only = ServerDecl(name="r", command="node", args=("x@1.0.0", "--host", "0.0.0.0"))
+    assert "EXPOSED-PRIVILEGED" not in _rel_ids(profile_server(reach_only, "/cfg/.mcp.json", "c"))
+    # Privilege without network reach => no EXPOSED-PRIVILEGED either.
+    priv_only = ServerDecl(
+        name="p", command="node", args=("x@1.0.0",), auto_approve=("run_command",)
+    )
+    assert "EXPOSED-PRIVILEGED" not in _rel_ids(profile_server(priv_only, "/cfg/.mcp.json", "c"))
+
+
+def test_exposure_reach_renders_in_terminal_and_json() -> None:
+    server = ServerDecl(
+        name="agent",
+        command="node",
+        args=("x@1.0.0", "--host", "0.0.0.0"),
+        auto_approve=("run_command",),
+    )
+    report = build_trust_report([profile_server(server, "/cfg/.mcp.json", "claude")])
+    terminal = render_terminal_trust(report, RenderOptions())
+    assert "exposure_reach" in terminal
+    assert "EXPOSED-PRIVILEGED" in terminal
+    out = render_json_trust(report, RenderOptions())
+    payload = json.loads(out)
+    factors = {f["factor"] for f in payload["profiles"][0]["factors"]}
+    assert "exposure_reach" in factors
+    rels = {r["id"] for r in payload["profiles"][0]["relationships"]}
+    assert "EXPOSED-PRIVILEGED" in rels
+    assert payload["schema_version"] == "1.0"  # a new factor/relationship is data — no shape bump
 
 
 # --- risk relationships: the differentiator ---

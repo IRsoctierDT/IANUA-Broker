@@ -13,9 +13,12 @@ Commands: ``scan`` (localhost posture, the default surface), ``inventory``
 ``trust`` (a per-agent Trust Score and the risky factor combinations; see
 ``mcpscan.trust``), ``baseline`` / ``diff`` (a posture snapshot and drift against
 it; see ``mcpscan.drift``), ``lan`` (authorized network assessment — inert
-without a signed manifest; see ``mcpscan.lan``), and ``schedule`` (emit an
+without a signed manifest; see ``mcpscan.lan``), ``schedule`` (emit an
 OS-native scheduler unit that re-runs scan+diff on a cadence — no daemon; see
-``mcpscan.schedule``).
+``mcpscan.schedule``), ``selftest`` (run the scanner against a known-bad
+throwaway fixture to confirm its core detections still fire; see
+``mcpscan.selftest``), and ``update-datapack`` (verify a signed detection
+data-pack and install it into the local store; see ``mcpscan.datapack``).
 """
 
 from __future__ import annotations
@@ -54,14 +57,27 @@ def build_parser() -> argparse.ArgumentParser:
         "command",
         nargs="?",
         default=None,
-        choices=["scan", "inventory", "atlas", "trust", "baseline", "diff", "lan", "schedule"],
+        choices=[
+            "scan",
+            "inventory",
+            "atlas",
+            "trust",
+            "baseline",
+            "diff",
+            "lan",
+            "schedule",
+            "selftest",
+            "update-datapack",
+        ],
         help=(
             "The action to run: 'scan' (localhost posture), 'inventory' (classified "
             "AI/MCP asset list), 'atlas' (findings mapped to security frameworks), "
             "'trust' (per-agent Trust Score + risk relationships), 'baseline' (write "
             "a posture snapshot), 'diff' (drift vs a baseline), 'lan' (authorized "
-            "network assessment), or 'schedule' (emit an OS scheduler unit that runs "
-            "scan+diff on a cadence)."
+            "network assessment), 'schedule' (emit an OS scheduler unit that runs "
+            "scan+diff on a cadence), 'selftest' (confirm the scanner's core "
+            "detections still fire against a known-bad fixture), or 'update-datapack' "
+            "(verify a signed detection data-pack and install it locally)."
         ),
     )
     parser.add_argument(
@@ -131,6 +147,17 @@ def build_parser() -> argparse.ArgumentParser:
             "to detect plaintext secrets. Values are redacted to a fingerprint at "
             "detection, never stored or printed. Only your own processes are "
             "readable. Off by default (enumerates no processes)."
+        ),
+    )
+    parser.add_argument(
+        "--inspect-telemetry",
+        action="store_true",
+        help=(
+            "Read the metadata (existence, permissions, last-modified time) of "
+            "discovered hosts' agent/MCP log surfaces to grade logging health: "
+            "absent/empty logging, group/world-readable logs, or long-stale logs. "
+            "Only log metadata is read, never log contents. Off by default "
+            "(reads nothing extra)."
         ),
     )
 
@@ -291,6 +318,32 @@ def build_parser() -> argparse.ArgumentParser:
             "has authorized. Required to probe any public address."
         ),
     )
+
+    datapack = parser.add_argument_group(
+        "update-datapack",
+        "Signed detection data-pack refresh (used only with 'update-datapack'). "
+        "Reuses --signature and --allowed-signers from the 'lan' group.",
+    )
+    datapack.add_argument(
+        "--pack",
+        metavar="PATH",
+        type=Path,
+        help="update-datapack: the detection data-pack JSON file to verify and install.",
+    )
+    datapack.add_argument(
+        "--signer",
+        metavar="ID",
+        help=(
+            "update-datapack: the signer identity to check against --allowed-signers "
+            "(default: the first principal named in that file)."
+        ),
+    )
+    datapack.add_argument(
+        "--scheme",
+        choices=("ssh", "ed25519"),
+        default="ssh",
+        help="update-datapack: the signature scheme (default: ssh, dependency-free).",
+    )
     return parser
 
 
@@ -317,6 +370,10 @@ def main(argv: list[str] | None = None) -> int:
         return _run_diff(args)
     if args.command == "schedule":
         return _run_schedule(args)
+    if args.command == "selftest":
+        return _run_selftest(args)
+    if args.command == "update-datapack":
+        return _run_update_datapack(args)
     return _run_scan(args)
 
 
@@ -586,6 +643,112 @@ def _emit_systemd_units(timer_text: str, service_text: str, out: Path | None) ->
     return Path(f"{SERVICE_STEM}.timer")
 
 
+def _run_selftest(args: argparse.Namespace) -> int:
+    """The self-test canary command (Feature C): confirm core detections still fire.
+
+    Runs the real engine over a throwaway, deliberately-misconfigured fixture in a
+    temp dir it creates and cleans up, and confirms each stable core finding id
+    still appears (plus the exposure classifier). Prints a per-check PASS/FAIL
+    line. Exits 0 when every detection fires; exits 1 with a loud "scanner appears
+    degraded" message on stderr if any expected finding is missing — the signal
+    that the scanner can no longer be trusted. No network; no lasting writes.
+    """
+    from .selftest import run_selftest
+
+    report = run_selftest()
+    for result in report.results:
+        status = "PASS" if result.present else "FAIL"
+        print(f"[{status}] {result.surface}: {result.expected_id}")
+
+    if report.ok:
+        print(f"selftest OK: all {len(report.results)} core detection(s) fired.")
+        return 0
+
+    for missing in report.missing:
+        print(
+            f"scanner appears degraded: expected finding {missing.expected_id} "
+            f"did not fire ({missing.surface} surface).",
+            file=sys.stderr,
+        )
+    return 1
+
+
+def _run_update_datapack(args: argparse.Namespace) -> int:
+    """Verify a signed detection data-pack and install it locally (Feature D).
+
+    Opt-in and verify-or-refuse: the pack's detached signature is checked over the
+    exact pack bytes (reusing the LAN signature machinery under a dedicated
+    ``mcpscan-datapack`` namespace) before anything is written. On success the pack
+    is copied to the OS-appropriate local store; later scans pick it up in place of
+    the built-in catalogs. On a verification failure nothing is written and the
+    command exits non-zero with the reason. No network is contacted — the pack is a
+    local file path (a future flag can add URL fetch).
+    """
+    import os
+    import platform
+
+    from .adapters.paths import datapack_store_path
+    from .datapack import DataPackError, first_allowed_signer, load_verified_datapack
+    from .report.writer import write_report
+
+    if args.pack is None or args.signature is None or args.allowed_signers is None:
+        print(
+            "error: 'update-datapack' requires --pack, --signature, and --allowed-signers",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        pack_bytes = args.pack.read_bytes()  # read once; verified and installed as-is
+        signers_text = args.allowed_signers.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"error: cannot read a data-pack input file: {exc}", file=sys.stderr)
+        return 2
+
+    operator = args.signer or first_allowed_signer(signers_text)
+    if operator is None:
+        print(
+            "error: cannot determine the signer identity from --allowed-signers; pass --signer ID",
+            file=sys.stderr,
+        )
+        return 2
+
+    store = datapack_store_path(platform.system(), os.environ)
+    if store is None:
+        print("error: cannot resolve a local data-pack store location for this OS", file=sys.stderr)
+        return 2
+    store_path = Path(str(store))
+
+    print(
+        f"note: 'update-datapack' verifies {args.pack} against {args.allowed_signers} "
+        f"(scheme {args.scheme}, signer {operator!r}) and, on success, installs it to "
+        f"{store_path}. No network is contacted.",
+        file=sys.stderr,
+    )
+
+    result = load_verified_datapack(
+        args.pack,
+        args.signature,
+        args.allowed_signers,
+        operator=operator,
+        scheme=args.scheme,
+        pack_bytes=pack_bytes,  # verify exactly the bytes we will install
+    )
+    if isinstance(result, DataPackError):
+        print(f"error: data-pack refused (nothing installed): {result.message}", file=sys.stderr)
+        return 1
+
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    # Install the exact verified bytes (valid UTF-8, proven by the successful parse above).
+    write_report(store_path, pack_bytes.decode("utf-8"))
+    print(
+        f"installed data-pack to {store_path} "
+        f"(schema {result.schema_version}, {len(result.provider_patterns)} provider pattern(s)).",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def _run_atlas(args: argparse.Namespace) -> int:
     """The framework-mapping command (Tier 2). A citation view over scan."""
     # Imported lazily so the default/help path stays light and import-isolated.
@@ -653,13 +816,14 @@ def _run_scan(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
-    # "now" is read here, once, and passed into the pure token-store check so no
-    # clock is consulted below the CLI layer (determinism guardrail).
+    # "now" is read here, once, and passed into the pure token-store/telemetry
+    # checks so no clock is consulted below the CLI layer (determinism guardrail).
     now_epoch: int | None = None
-    if args.inspect_token_stores:
+    if args.inspect_token_stores or args.inspect_telemetry:
         from datetime import datetime
 
         now_epoch = int(datetime.now(UTC).timestamp())
+    if args.inspect_token_stores:
         print(
             "note: --inspect-token-stores reads token-store file contents to check "
             "expiry; no token value is stored or printed.",
@@ -672,12 +836,19 @@ def _run_scan(args: argparse.Namespace) -> int:
             "redacted, never stored.",
             file=sys.stderr,
         )
+    if args.inspect_telemetry:
+        print(
+            "note: --inspect-telemetry reads only log-file metadata (existence, "
+            "permissions, mtime) to grade logging health; no log contents are read.",
+            file=sys.stderr,
+        )
 
     report = scan(
         roots=args.root,
         online=args.online,
         inspect_token_stores=args.inspect_token_stores,
         inspect_process_env=args.inspect_process_env,
+        inspect_telemetry=args.inspect_telemetry,
         now_epoch=now_epoch,
     )
     report = _apply_acceptance_ledger(report, args.root)
