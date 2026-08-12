@@ -14,6 +14,7 @@ from mcpscan.adapters.claude import ClaudeAdapter
 from mcpscan.discovery.sockets import EnumerationResult, ListeningSocket
 from mcpscan.domain import Dimension, ServerState
 from mcpscan.engine import discover_host_config_files, scan
+from mcpscan.scoring import grade_findings
 
 VULN_CONFIG = {
     "mcpServers": {
@@ -126,6 +127,75 @@ def test_user_level_config_is_discovered(tmp_path: Path) -> None:
     report = scan(roots=[], system="Darwin", env={"HOME": str(tmp_path)}, enumerate_sockets=False)
     ids = {f.id for s in report.servers for f in s.findings}
     assert "CRED-PLAINTEXT" in ids
+
+
+# --- CRED-REUSE blast radius through the full pipeline (Wave 1 Feature C) ---
+REUSED_KEY = "sk-ant-api03-REUSEDACROSSSERVERSABCDEFGHIJ0123456789"
+
+
+def test_reused_secret_across_configs_flags_both_and_lowers_grade(tmp_path: Path) -> None:
+    claude_cfg = {
+        "mcpServers": {
+            "one": {"command": "npx", "args": ["a-mcp@1.0.0"], "env": {"API_KEY": REUSED_KEY}}
+        }
+    }
+    cursor_cfg = {
+        "mcpServers": {
+            "two": {"command": "npx", "args": ["b-mcp@1.0.0"], "env": {"TOKEN": REUSED_KEY}}
+        }
+    }
+    (tmp_path / ".mcp.json").write_text(json.dumps(claude_cfg), encoding="utf-8")
+    (tmp_path / ".cursor").mkdir()
+    (tmp_path / ".cursor" / "mcp.json").write_text(json.dumps(cursor_cfg), encoding="utf-8")
+    report = scan(roots=[tmp_path], system="Linux", env={}, enumerate_sockets=False)
+    assert len(report.servers) == 2
+    for server in report.servers:
+        ids = {f.id for f in server.findings}
+        assert {"CRED-PLAINTEXT", "CRED-REUSE"} <= ids
+        # Grade impact is visible: CRITICAL(40) + MEDIUM(10) -> score 50 -> F,
+        # where the lone CRED-PLAINTEXT would have graded D. Reuse detection
+        # runs before grading, so the blast radius is priced in.
+        assert grade_findings(server.findings) == "F"
+    assert report.overall_grade == "F"
+
+
+def test_reused_secret_between_env_file_and_config_server(tmp_path: Path) -> None:
+    # The join spans surfaces: a .env "server" and a declared config server.
+    cfg = {
+        "mcpServers": {
+            "one": {"command": "npx", "args": ["a-mcp@1.0.0"], "env": {"API_KEY": REUSED_KEY}}
+        }
+    }
+    (tmp_path / ".mcp.json").write_text(json.dumps(cfg), encoding="utf-8")
+    (tmp_path / ".env").write_text(f"ANTHROPIC_API_KEY={REUSED_KEY}\n", encoding="utf-8")
+    report = scan(roots=[tmp_path], system="Linux", env={}, enumerate_sockets=False)
+    by_id = {s.id: {f.id for f in s.findings} for s in report.servers}
+    env_ids = next(ids for sid, ids in by_id.items() if sid.endswith(".env"))
+    cfg_ids = next(ids for sid, ids in by_id.items() if sid.endswith("#one"))
+    assert "CRED-REUSE" in env_ids
+    assert "CRED-REUSE" in cfg_ids
+
+
+def test_distinct_secrets_across_configs_are_not_reuse(tmp_path: Path) -> None:
+    claude_cfg = {
+        "mcpServers": {
+            "one": {"command": "npx", "args": ["a-mcp@1.0.0"], "env": {"API_KEY": REUSED_KEY}}
+        }
+    }
+    cursor_cfg = {
+        "mcpServers": {
+            "two": {
+                "command": "npx",
+                "args": ["b-mcp@1.0.0"],
+                "env": {"TOKEN": "sk-ant-api03-ANENTIRELYDIFFERENTSECRET9876543210"},
+            }
+        }
+    }
+    (tmp_path / ".mcp.json").write_text(json.dumps(claude_cfg), encoding="utf-8")
+    (tmp_path / ".cursor").mkdir()
+    (tmp_path / ".cursor" / "mcp.json").write_text(json.dumps(cursor_cfg), encoding="utf-8")
+    report = scan(roots=[tmp_path], system="Linux", env={}, enumerate_sockets=False)
+    assert not any(f.id == "CRED-REUSE" for s in report.servers for f in s.findings)
 
 
 def test_env_file_in_project_root_is_audited(tmp_path: Path) -> None:

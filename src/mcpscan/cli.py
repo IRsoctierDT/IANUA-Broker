@@ -132,6 +132,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="diff: exit non-zero if any change is a posture regression.",
     )
     drift.add_argument(
+        "--max-age-days",
+        metavar="N",
+        type=int,
+        default=30,
+        help="diff: baseline age (days) beyond which it counts as stale (default: 30).",
+    )
+    drift.add_argument(
+        "--fail-on-stale",
+        action="store_true",
+        help=(
+            "diff: exit non-zero when the baseline is older than --max-age-days "
+            "(explicit opt-in; without it a stale baseline only warns)."
+        ),
+    )
+    drift.add_argument(
         "--no-inventory",
         action="store_true",
         help="baseline/diff: snapshot posture only, skipping the AI/MCP asset inventory.",
@@ -293,7 +308,15 @@ def _run_baseline(args: argparse.Namespace) -> int:
 
 def _run_diff(args: argparse.Namespace) -> int:
     """Compare the current posture against a baseline snapshot (Tier 5)."""
-    from .drift import BaselineError, diff_snapshots, load_baseline
+    from datetime import datetime
+
+    from .drift import (
+        BaselineError,
+        assess_staleness,
+        baseline_created_at,
+        diff_snapshots,
+        load_baseline,
+    )
     from .drift.render import render_json_drift, render_terminal_drift
     from .report.writer import write_report
 
@@ -311,15 +334,26 @@ def _run_diff(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
+    # "today" is computed here, once — the staleness helper stays deterministic.
+    staleness = assess_staleness(
+        baseline_created_at(baseline_text),
+        today=datetime.now(UTC).date(),
+        max_age_days=args.max_age_days,
+    )
+
     current = _posture_snapshot(args)
     report = diff_snapshots(baseline, current)
 
-    print(render_terminal_drift(report), end="")
+    print(render_terminal_drift(report, staleness=staleness), end="")
     if args.json is not None:
-        write_report(args.json, render_json_drift(report))
+        write_report(args.json, render_json_drift(report, staleness=staleness))
         print(f"wrote drift JSON: {args.json}", file=sys.stderr)
 
     if args.fail_on_regression and report.regressions:
+        return 1
+    # Stale age gates only under the explicit opt-in flag (gate polarity: a
+    # decayed-but-unchanged posture must not fail CI unless asked to).
+    if args.fail_on_stale and staleness.stale:
         return 1
     return 0
 
@@ -392,6 +426,7 @@ def _run_scan(args: argparse.Namespace) -> int:
         )
 
     report = scan(roots=args.root, online=args.online)
+    report = _apply_acceptance_ledger(report, args.root)
     opts = RenderOptions(
         show_secrets=args.show_secrets,
         absolute_paths=args.absolute_paths,
@@ -560,10 +595,45 @@ def _apply_fixes(roots: list[Path] | None, opts: object) -> None:
         print(f"applied {total} fix(es). Re-run mcpscan to confirm.", file=sys.stderr)
 
 
+def _apply_acceptance_ledger(report: Report, roots: list[Path] | None) -> Report:
+    """Attach per-root ``.mcpscan-accept.json`` acceptances to the report.
+
+    Ledger warnings (malformed files, entries naming non-tool-scope findings)
+    go to stderr. "today" for expiry is computed here, once, so the acceptance
+    module stays deterministic (no clock reads outside the CLI layer).
+    """
+    from datetime import datetime
+
+    from .acceptance import apply_acceptances, load_ledgers
+
+    ledger = load_ledgers(roots if roots is not None else [Path.cwd()])
+    for warning in ledger.warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+    if not ledger.entries:
+        return report
+    report, apply_warnings = apply_acceptances(
+        report, ledger.entries, today=datetime.now(UTC).date()
+    )
+    for warning in apply_warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+    return report
+
+
 def _exit_code(report: Report, fail_on: str) -> int:
-    """Non-zero if any finding is at/above the configured threshold."""
+    """Non-zero if any finding is at/above the configured threshold.
+
+    A finding carrying an UNEXPIRED acceptance is skipped by the gate — and
+    only by the gate: grades still count accepted findings (posture is what it
+    is; acceptance relaxes CI failure, not the measurement). An expired
+    acceptance no longer shields the finding, so it gates again.
+    """
     blocking = _THRESHOLDS[fail_on]
-    has_blocking = any(f.severity in blocking for s in report.servers for f in s.findings)
+    has_blocking = any(
+        f.severity in blocking
+        for s in report.servers
+        for f in s.findings
+        if f.acceptance is None or f.acceptance.expired
+    )
     return 1 if has_blocking else 0
 
 

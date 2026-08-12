@@ -79,6 +79,42 @@ def test_json_show_secrets_adds_masked_only() -> None:
     assert RAW_SECRET not in out  # masked, never raw
 
 
+def test_json_reuse_findings_never_contain_raw_secret() -> None:
+    # Blast-radius corpus (Wave 1 Feature C): CRED-REUSE findings carry the shared
+    # fingerprint's triage handle but must stay redaction-safe end to end.
+    from dataclasses import replace
+
+    from mcpscan.checks.secrets import check_secret_reuse
+
+    leaky = _report().servers[0]
+    twin = replace(
+        leaky,
+        id="/home/jane/.cursor/mcp.json#twin",
+        findings=(
+            replace(
+                leaky.findings[0],
+                location=Location(path="/home/jane/.cursor/mcp.json", line=7),
+            ),
+        ),
+    )
+    additions = check_secret_reuse([leaky, twin])
+    servers = tuple(replace(s, findings=s.findings + tuple(additions[s.id])) for s in (leaky, twin))
+    report = Report(
+        schema_version="1.0",
+        servers=servers,
+        overall_grade="F",
+        dimension_grades={Dimension.CREDENTIAL: "F"},
+    )
+    out = render_json(report, RenderOptions(home="/home/jane"))
+    assert RAW_SECRET not in out
+    data = json.loads(out)
+    reuse = [f for s in data["servers"] for f in s["findings"] if f["id"] == "CRED-REUSE"]
+    assert len(reuse) == 2
+    for entry in reuse:
+        assert "masked" not in entry["secret"]  # redacted by default
+        assert entry["secret"]["sha256_8"]  # the operator triage handle survives
+
+
 # --- path privacy (T-306) ---
 def test_display_path_relativizes_home() -> None:
     opts = RenderOptions(home="/home/jane")
@@ -164,6 +200,61 @@ def test_terminal_skips_servers_without_findings() -> None:
     out = render_terminal(report, RenderOptions(home="/home/jane"))
     assert "#tidy" not in out  # the clean server is skipped
     assert "#leaky" in out  # the flagged server is rendered
+
+
+# --- acceptance annotations (Wave 1 Feature D) ---
+def _accepted_report(*, expired: bool = False) -> Report:
+    from dataclasses import replace
+
+    from mcpscan.domain import Acceptance
+
+    acceptance = Acceptance(
+        owner="Jane Doe",
+        accepted="2026-08-11",
+        expires="2026-11-11",
+        reason="CI runner is ephemeral",
+        expired=expired,
+    )
+    scoped = Finding(
+        id="SCOPE-DANGEROUS-ALLOW",
+        dimension=Dimension.TOOL_SCOPE,
+        severity=Severity.HIGH,
+        title="Dangerous tool auto-allowed: 'Bash(*)'",
+        location=Location(path="/home/jane/.mcp.json"),
+        remediation="Remove the blanket allow.",
+        rationale="Auto-approved command execution is a full RCE primitive.",
+        acceptance=acceptance,
+    )
+    base = _report()
+    server = replace(base.servers[0], findings=(scoped, *base.servers[0].findings))
+    return replace(base, servers=(server,))
+
+
+def test_json_acceptance_object_present_only_when_set() -> None:
+    out = render_json(_accepted_report(), RenderOptions(home="/home/jane"))
+    findings = {f["id"]: f for f in json.loads(out)["servers"][0]["findings"]}
+    acceptance = findings["SCOPE-DANGEROUS-ALLOW"]["acceptance"]
+    assert acceptance["owner"] == "Jane Doe"
+    assert acceptance["expires"] == "2026-11-11"
+    assert acceptance["expired"] is False
+    assert "acceptance" not in findings["CRED-PLAINTEXT"]  # optional key
+
+
+def test_terminal_annotates_acceptance_and_states_gate_vs_grade() -> None:
+    out = render_terminal(_accepted_report(), RenderOptions(home="/home/jane"))
+    assert "[ACCEPTED until 2026-11-11 by Jane Doe] — CI runner is ephemeral" in out
+    assert "accepted findings still lower the grade" in out
+
+
+def test_terminal_expired_acceptance_is_loud() -> None:
+    out = render_terminal(_accepted_report(expired=True), RenderOptions(home="/home/jane"))
+    assert "acceptance EXPIRED (Jane Doe, expired 2026-11-11)" in out
+    assert "[ACCEPTED" not in out
+
+
+def test_html_shows_acceptance_annotation() -> None:
+    html = render_html(_accepted_report(), RenderOptions(home="/home/jane"))
+    assert "ACCEPTED until 2026-11-11 by Jane Doe" in html
 
 
 # --- writer perms (T-305) ---

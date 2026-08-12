@@ -645,3 +645,288 @@ def test_baseline_with_inventory_and_diff_json(
     assert rc == 0
     payload = json.loads(drift_json.read_text(encoding="utf-8"))
     assert payload["summary"]["total"] == 0  # unchanged posture
+
+
+# --- diff validation-age staleness ---
+def _write_clean_config(tmp_path: Path) -> None:
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {}, "permissions": {"allow": ["Read"]}}), encoding="utf-8"
+    )
+
+
+def _baseline_aged(tmp_path: Path, *, created_at: object) -> Path:
+    """Write a real baseline, then rewrite its created_at metadata.
+
+    ``created_at`` is metadata outside the integrity digest, so editing it does
+    not trip the tamper check — exactly how an operator's old baseline looks.
+    """
+    base = tmp_path / "baseline.json"
+    assert main(["baseline", "--root", str(tmp_path), "--no-inventory", "--out", str(base)]) == 0
+    data = json.loads(base.read_text(encoding="utf-8"))
+    data["created_at"] = created_at
+    base.write_text(json.dumps(data), encoding="utf-8")
+    return base
+
+
+def _days_ago(days: int) -> str:
+    from datetime import UTC, datetime, timedelta
+
+    return (datetime.now(UTC) - timedelta(days=days)).isoformat()
+
+
+def test_diff_prints_validation_age_line(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    _write_clean_config(tmp_path)
+    base = tmp_path / "baseline.json"
+    assert main(["baseline", "--root", str(tmp_path), "--no-inventory", "--out", str(base)]) == 0
+    rc = main(["diff", "--root", str(tmp_path), "--no-inventory", "--baseline", str(base)])
+    assert rc == 0
+    assert "baseline created" in capsys.readouterr().out  # the age line always prints
+
+
+def test_diff_stale_baseline_warns_but_passes_without_flag(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    _write_clean_config(tmp_path)
+    base = _baseline_aged(tmp_path, created_at=_days_ago(45))
+    rc = main(["diff", "--root", str(tmp_path), "--no-inventory", "--baseline", str(base)])
+    assert rc == 0  # stale alone never gates without the opt-in flag
+    out = capsys.readouterr().out
+    assert "days ago" in out
+    assert "strong performance is rented, not owned" in out
+
+
+def test_diff_fail_on_stale_gates_even_with_zero_drift(tmp_path: Path) -> None:
+    _write_clean_config(tmp_path)
+    base = _baseline_aged(tmp_path, created_at=_days_ago(45))
+    rc = main(
+        [
+            "diff",
+            "--root",
+            str(tmp_path),
+            "--no-inventory",
+            "--baseline",
+            str(base),
+            "--fail-on-regression",
+            "--fail-on-stale",
+        ]
+    )
+    assert rc == 1  # unchanged posture, but the baseline itself has decayed
+
+
+def test_diff_fail_on_stale_passes_when_fresh(tmp_path: Path) -> None:
+    _write_clean_config(tmp_path)
+    base = tmp_path / "baseline.json"
+    assert main(["baseline", "--root", str(tmp_path), "--no-inventory", "--out", str(base)]) == 0
+    rc = main(
+        [
+            "diff",
+            "--root",
+            str(tmp_path),
+            "--no-inventory",
+            "--baseline",
+            str(base),
+            "--fail-on-stale",
+        ]
+    )
+    assert rc == 0
+
+
+def test_diff_max_age_days_tightens_the_cadence(tmp_path: Path) -> None:
+    _write_clean_config(tmp_path)
+    base = _baseline_aged(tmp_path, created_at=_days_ago(5))
+    args = ["diff", "--root", str(tmp_path), "--no-inventory", "--baseline", str(base)]
+    assert main([*args, "--fail-on-stale"]) == 0  # 5 days old: fine at default 30
+    assert main([*args, "--fail-on-stale", "--max-age-days", "3"]) == 1
+
+
+def test_diff_missing_created_at_is_unknown_and_never_gates(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    _write_clean_config(tmp_path)
+    base = _baseline_aged(tmp_path, created_at=None)
+    rc = main(
+        [
+            "diff",
+            "--root",
+            str(tmp_path),
+            "--no-inventory",
+            "--baseline",
+            str(base),
+            "--fail-on-stale",
+        ]
+    )
+    assert rc == 0  # unknown age is loud in output but never trips the gate
+    assert "unknown" in capsys.readouterr().out
+
+
+def test_diff_json_carries_staleness_fields(tmp_path: Path) -> None:
+    _write_clean_config(tmp_path)
+    created = _days_ago(45)
+    base = _baseline_aged(tmp_path, created_at=created)
+    drift_json = tmp_path / "drift.json"
+    rc = main(
+        [
+            "diff",
+            "--root",
+            str(tmp_path),
+            "--no-inventory",
+            "--baseline",
+            str(base),
+            "--json",
+            str(drift_json),
+        ]
+    )
+    assert rc == 0
+    payload = json.loads(drift_json.read_text(encoding="utf-8"))
+    assert payload["baseline_created_at"] == created
+    # ">= 45" (not "== 45") only to survive a UTC-midnight crossing mid-test.
+    assert payload["baseline_age_days"] >= 45
+    assert payload["stale"] is True
+
+
+# --- scan acceptance ledger (Wave 1 Feature D) ---
+def _quiet_sockets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run the real scan pipeline minus this machine's listening sockets."""
+    from mcpscan.discovery.sockets import EnumerationResult
+
+    monkeypatch.setattr(engine_mod, "enumerate_listening", lambda: EnumerationResult(sockets=()))
+
+
+def _write_dangerous_scope_config(tmp_path: Path) -> None:
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {}, "permissions": {"allow": ["Bash(*)"]}}), encoding="utf-8"
+    )
+
+
+def _write_ledger(tmp_path: Path, *entries: dict[str, object]) -> None:
+    (tmp_path / ".mcpscan-accept.json").write_text(
+        json.dumps({"acceptances": list(entries)}), encoding="utf-8"
+    )
+
+
+def _accept_entry(**overrides: object) -> dict[str, object]:
+    entry: dict[str, object] = {
+        "finding": "SCOPE-DANGEROUS-ALLOW",
+        "server": "permissions",
+        "owner": "Jane Doe",
+        "accepted": "2026-08-11",
+        "expires": "2999-01-01",
+        "reason": "CI runner is ephemeral",
+    }
+    entry.update(overrides)
+    return entry
+
+
+def test_scan_accepted_finding_passes_gate_but_keeps_grade(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    _quiet_sockets(monkeypatch)
+    _write_dangerous_scope_config(tmp_path)
+    _write_ledger(tmp_path, _accept_entry())
+    rc = main(["scan", "--root", str(tmp_path)])
+    assert rc == 0  # the HIGH finding is accepted -> the gate relaxes
+    out = capsys.readouterr().out
+    assert "[ACCEPTED until 2999-01-01 by Jane Doe]" in out
+    # Grade unchanged: the accepted HIGH finding still costs its 20 points.
+    assert "overall posture: B" in out
+    assert "accepted findings still lower the grade" in out
+
+
+def test_scan_without_ledger_still_gates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _quiet_sockets(monkeypatch)
+    _write_dangerous_scope_config(tmp_path)
+    assert main(["scan", "--root", str(tmp_path)]) == 1  # HIGH blocks by default
+
+
+def test_scan_expired_acceptance_gates_again_and_is_loud(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    _quiet_sockets(monkeypatch)
+    _write_dangerous_scope_config(tmp_path)
+    _write_ledger(tmp_path, _accept_entry(expires="2020-01-01"))
+    rc = main(["scan", "--root", str(tmp_path)])
+    assert rc == 1  # a lapsed acceptance no longer shields the finding
+    assert "acceptance EXPIRED (Jane Doe, expired 2020-01-01)" in capsys.readouterr().out
+
+
+def test_scan_non_tool_scope_acceptance_is_ignored_with_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    _quiet_sockets(monkeypatch)
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "leaky": {
+                        "command": "npx",
+                        "args": ["x-mcp@1.0.0"],
+                        "env": {"OPENAI_API_KEY": "sk-ABCDEFGHIJKLMNOPQRSTUVWX0123"},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_ledger(tmp_path, _accept_entry(finding="CRED-PLAINTEXT", server="leaky"))
+    rc = main(["scan", "--root", str(tmp_path)])
+    assert rc == 1  # the credential finding still gates
+    assert "cannot be risk-accepted" in capsys.readouterr().err
+
+
+def test_scan_malformed_ledger_warns_and_scan_proceeds(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    _quiet_sockets(monkeypatch)
+    _write_dangerous_scope_config(tmp_path)
+    (tmp_path / ".mcpscan-accept.json").write_text("{not json", encoding="utf-8")
+    rc = main(["scan", "--root", str(tmp_path)])
+    assert rc == 1  # ledger ignored, the finding still gates — no crash
+    assert "malformed acceptance ledger" in capsys.readouterr().err
+
+
+def test_scan_json_carries_acceptance_and_schema_bump(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _quiet_sockets(monkeypatch)
+    _write_dangerous_scope_config(tmp_path)
+    _write_ledger(tmp_path, _accept_entry())
+    dest = tmp_path / "report.json"
+    rc = main(["scan", "--root", str(tmp_path), "--json", str(dest)])
+    assert rc == 0
+    payload = json.loads(dest.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == "1.1"  # the one coordinated bump
+    finding = payload["servers"][0]["findings"][0]
+    assert finding["acceptance"] == {
+        "owner": "Jane Doe",
+        "accepted": "2026-08-11",
+        "expires": "2999-01-01",
+        "reason": "CI runner is ephemeral",
+        "expired": False,
+    }
+    assert payload["servers"][0]["grade"] == "B"  # grade still counts it
+
+
+def test_scan_sarif_marks_accepted_finding_suppressed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _quiet_sockets(monkeypatch)
+    _write_dangerous_scope_config(tmp_path)
+    _write_ledger(tmp_path, _accept_entry())
+    dest = tmp_path / "results.sarif"
+    rc = main(["scan", "--root", str(tmp_path), "--sarif", str(dest)])
+    assert rc == 0
+    result = json.loads(dest.read_text(encoding="utf-8"))["runs"][0]["results"][0]
+    suppression = result["suppressions"][0]
+    assert suppression["kind"] == "external"
+    assert suppression["status"] == "accepted"
+    assert "Jane Doe" in suppression["justification"]

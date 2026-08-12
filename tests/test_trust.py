@@ -9,14 +9,18 @@ from mcpscan.adapters.base import ParsedConfig, ServerDecl
 from mcpscan.report import RenderOptions
 from mcpscan.trust import (
     TrustFactor,
+    TrustProfile,
     analyze_config,
+    apply_shared_credentials,
     build_trust_report,
     collect_trust,
+    config_credential_fingerprints,
     profile_server,
 )
 from mcpscan.trust.render import render_json_trust, render_terminal_trust
 
 _SECRET = "sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+_SECRET2 = "sk-ant-api03-ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210"
 
 
 def _factor(profile: object, factor: TrustFactor) -> int:
@@ -165,6 +169,78 @@ def test_json_render_is_stable_and_secretless() -> None:
     assert payload["schema_version"] == "1.0"
     assert payload["profiles"][0]["score"] == 75
     assert _SECRET not in first
+
+
+# --- SHARED-CREDENTIAL blast radius (Wave 1 Feature C) ---
+def _shared_secret_profiles(secret_a: str, secret_b: str) -> list[TrustProfile]:
+    a = ServerDecl(name="a", command="npx", args=("x@1.0.0",), env=(("API_KEY", secret_a),))
+    b = ServerDecl(name="b", command="npx", args=("y@1.0.0",), env=(("TOKEN", secret_b),))
+    config = ParsedConfig(path="/cfg/.mcp.json", servers=(a, b))
+    return apply_shared_credentials(
+        analyze_config(config, "claude"), config_credential_fingerprints(config)
+    )
+
+
+def test_shared_credential_relationship_without_score_change() -> None:
+    profiles = _shared_secret_profiles(_SECRET, _SECRET)
+    assert len(profiles) == 2
+    for profile in profiles:
+        rel = next(r for r in profile.relationships if r.id == "SHARED-CREDENTIAL")
+        assert rel.factors == (TrustFactor.SECRET_ACCESS,)
+        assert "1 other tool(s)" in rel.rationale
+        assert profile.score == 75  # relationship only — SECRET_ACCESS already billed
+
+
+def test_distinct_secrets_share_no_credential() -> None:
+    profiles = _shared_secret_profiles(_SECRET, _SECRET2)
+    for profile in profiles:
+        assert "SHARED-CREDENTIAL" not in _rel_ids(profile)
+
+
+def test_same_secret_twice_on_one_subject_is_not_shared() -> None:
+    solo = ServerDecl(
+        name="a",
+        command="npx",
+        args=("x@1.0.0",),
+        env=(("API_KEY", _SECRET), ("EXTRA_TOKEN", _SECRET)),
+    )
+    config = ParsedConfig(path="/cfg/.mcp.json", servers=(solo,))
+    profiles = apply_shared_credentials(
+        analyze_config(config, "claude"), config_credential_fingerprints(config)
+    )
+    assert profiles[0].relationships == ()  # needs >= 2 distinct subjects
+
+
+def test_collect_trust_shared_credential_across_configs(tmp_path: Path) -> None:
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "a": {"command": "npx", "args": ["x@1.0.0"], "env": {"API_KEY": _SECRET}}
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / ".cursor").mkdir()
+    (tmp_path / ".cursor" / "mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "b": {"command": "npx", "args": ["y@1.0.0"], "env": {"TOKEN": _SECRET}}
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    report = collect_trust(roots=[tmp_path], system="Linux", env={})
+    shared = [p for p in report.profiles if "SHARED-CREDENTIAL" in {r.id for r in p.relationships}]
+    assert {p.server_name for p in shared} == {"a", "b"}
+    assert all(p.score == 75 for p in shared)  # no double-billing
+    assert report.risky  # the relationship marks both as risky subjects
+    out = render_json_trust(report, RenderOptions())
+    assert _SECRET not in out  # a raw secret never reaches trust output
+    assert json.loads(out)["schema_version"] == "1.0"  # data change only — no shape bump
 
 
 # --- collection end to end ---

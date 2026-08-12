@@ -80,6 +80,28 @@ class Location:
 
 
 @dataclass(frozen=True)
+class Acceptance:
+    """A named-human, expiring risk acceptance attached to a finding.
+
+    Comes from the per-root ``.mcpscan-accept.json`` ledger (see
+    ``mcpscan.acceptance``). ``expired`` is computed **once**, at application
+    time, from the CLI-supplied ``today`` — so renderers and the exit gate stay
+    pure, deterministic functions of the Report with no clock reads of their
+    own.
+
+    Gate-vs-grade stance: an unexpired acceptance only stops the finding from
+    failing the CLI exit gate. Grades still count accepted findings — posture
+    is what it is; acceptance relaxes CI failure, not the measurement.
+    """
+
+    owner: str
+    accepted: str
+    expires: str
+    reason: str
+    expired: bool = False
+
+
+@dataclass(frozen=True)
 class Finding:
     """A single posture issue, with its remediation guidance."""
 
@@ -91,6 +113,7 @@ class Finding:
     remediation: str
     rationale: str
     secret: SecretFingerprint | None = None
+    acceptance: Acceptance | None = None
 
 
 @dataclass(frozen=True)

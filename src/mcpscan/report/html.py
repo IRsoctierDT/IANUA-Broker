@@ -14,7 +14,7 @@ from html import escape
 
 from ..domain import Report, Severity
 from . import RenderOptions
-from .common import location_str, ordered_findings, secret_str, server_grade
+from .common import acceptance_str, location_str, ordered_findings, secret_str, server_grade
 
 # AA-contrast severity colors on a white background.
 _SEV_COLOR = {
@@ -91,6 +91,10 @@ def render_html(report: Report, opts: RenderOptions | None = None) -> str:
                 f'<div class="sev" style="color:{color}">'
                 f"{escape(finding.severity.value.upper())} — {escape(finding.title)}</div>"
             )
+            if finding.acceptance is not None:
+                parts.append(
+                    f'<div class="meta">accept: {escape(acceptance_str(finding.acceptance))}</div>'
+                )
             parts.append(
                 f'<div class="meta">where: <code>{escape(location_str(finding, opts))}</code></div>'
             )

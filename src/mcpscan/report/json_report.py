@@ -45,6 +45,16 @@ def report_to_dict(report: Report, opts: RenderOptions | None = None) -> dict[st
                 if opts.show_secrets:
                     secret["masked"] = finding.secret.masked
                 entry["secret"] = secret
+            if finding.acceptance is not None:
+                # Optional since schema_version 1.1: a named-human acceptance.
+                # "expired" is precomputed by the CLI so this stays byte-stable.
+                entry["acceptance"] = {
+                    "owner": finding.acceptance.owner,
+                    "accepted": finding.acceptance.accepted,
+                    "expires": finding.acceptance.expires,
+                    "reason": finding.acceptance.reason,
+                    "expired": finding.acceptance.expired,
+                }
             findings.append(entry)
         servers.append(
             {

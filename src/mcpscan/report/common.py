@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from ..domain import Finding, SecretFingerprint, Server
+from ..domain import Acceptance, Finding, SecretFingerprint, Server
 from ..scoring import grade_findings
 from . import SEVERITY_ORDER, RenderOptions, display_path
 
@@ -35,3 +35,11 @@ def secret_str(fp: SecretFingerprint | None, opts: RenderOptions) -> str | None:
     if opts.show_secrets:
         return f"{fp.masked} ({base})"
     return f"[redacted {base}]"
+
+
+def acceptance_str(acceptance: Acceptance) -> str:
+    """Render an acceptance annotation — quiet while valid, loud once expired."""
+    if acceptance.expired:
+        return f"acceptance EXPIRED ({acceptance.owner}, expired {acceptance.expires})"
+    base = f"[ACCEPTED until {acceptance.expires} by {acceptance.owner}]"
+    return f"{base} — {acceptance.reason}" if acceptance.reason else base

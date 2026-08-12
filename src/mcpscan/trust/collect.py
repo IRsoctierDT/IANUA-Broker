@@ -14,9 +14,15 @@ import platform
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from ..domain import SecretFingerprint
 from ..engine import _adapters
 from ..io_safe import SafeReadError, safe_read_text
-from .analyze import analyze_config, build_trust_report
+from .analyze import (
+    analyze_config,
+    apply_shared_credentials,
+    build_trust_report,
+    config_credential_fingerprints,
+)
 from .model import TrustProfile, TrustReport
 
 
@@ -39,6 +45,7 @@ def collect_trust(
     roots = list(roots) if roots is not None else [Path.cwd()]
 
     profiles: list[TrustProfile] = []
+    fingerprints: dict[str, tuple[SecretFingerprint, ...]] = {}
     for adapter in _adapters():
         candidates = [Path(str(c)) for c in adapter.default_config_paths(system, env)]
         for root in roots:
@@ -49,6 +56,10 @@ def collect_trust(
             raw = _read(path)
             if raw is None:
                 continue
-            profiles.extend(analyze_config(adapter.parse(str(path), raw), adapter.name))
+            parsed = adapter.parse(str(path), raw)
+            profiles.extend(analyze_config(parsed, adapter.name))
+            fingerprints.update(config_credential_fingerprints(parsed))
 
-    return build_trust_report(profiles)
+    # Cross-subject blast radius: one credential on >= 2 subjects becomes a
+    # SHARED-CREDENTIAL relationship on each (relationship only — no score change).
+    return build_trust_report(apply_shared_credentials(profiles, fingerprints))

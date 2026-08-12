@@ -246,6 +246,53 @@ def test_clean_report_is_valid_empty_run() -> None:
     assert doc["runs"][0]["tool"]["driver"]["rules"] == []
 
 
+# --- acceptance suppressions (Wave 1 Feature D) ---
+def _acceptance(*, expired: bool = False) -> object:
+    from mcpscan.domain import Acceptance
+
+    return Acceptance(
+        owner="Jane Doe",
+        accepted="2026-08-11",
+        expires="2026-11-11",
+        reason="CI runner is ephemeral",
+        expired=expired,
+    )
+
+
+def test_unexpired_acceptance_emits_suppression() -> None:
+    f = _finding(
+        id="SCOPE-DANGEROUS-ALLOW",
+        dimension=Dimension.TOOL_SCOPE,
+        severity=Severity.HIGH,
+        secret=None,
+        acceptance=_acceptance(),
+    )
+    doc = json.loads(render_sarif(_report(f), base="/repo"))
+    suppression = doc["runs"][0]["results"][0]["suppressions"][0]
+    assert suppression == {
+        "kind": "external",
+        "status": "accepted",
+        "justification": "Accepted by Jane Doe until 2026-11-11: CI runner is ephemeral",
+    }
+
+
+def test_expired_acceptance_emits_no_suppression() -> None:
+    f = _finding(
+        id="SCOPE-DANGEROUS-ALLOW",
+        dimension=Dimension.TOOL_SCOPE,
+        severity=Severity.HIGH,
+        secret=None,
+        acceptance=_acceptance(expired=True),
+    )
+    doc = json.loads(render_sarif(_report(f), base="/repo"))
+    assert "suppressions" not in doc["runs"][0]["results"][0]
+
+
+def test_unaccepted_finding_has_no_suppressions_key() -> None:
+    doc = json.loads(render_sarif(_report(), base="/repo"))
+    assert "suppressions" not in doc["runs"][0]["results"][0]
+
+
 # --- logical locations for network endpoints (ADR-16, lan --sarif) ---
 def test_logical_locations_emit_network_endpoint() -> None:
     f = _finding(

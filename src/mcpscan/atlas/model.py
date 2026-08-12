@@ -82,6 +82,8 @@ _LLM_SUPPLY = FrameworkRef(Framework.OWASP_LLM, "LLM03", "Supply Chain")
 _PUBLIC_FACING = FrameworkRef(Framework.ATTACK, "T1190", "Exploit Public-Facing Application")
 _ATLAS_PUBLIC = FrameworkRef(Framework.ATLAS, "AML.T0049", "Exploit Public-Facing Application")
 
+_VALID_ACCOUNTS = FrameworkRef(Framework.ATTACK, "T1078", "Valid Accounts")
+
 _CMD_INTERPRETER = FrameworkRef(Framework.ATTACK, "T1059", "Command and Scripting Interpreter")
 _ELEVATION = FrameworkRef(Framework.ATTACK, "T1548", "Abuse Elevation Control Mechanism")
 _LLM_AGENCY = FrameworkRef(Framework.OWASP_LLM, "LLM06", "Excessive Agency")
@@ -93,6 +95,9 @@ MAPPINGS: dict[str, tuple[FrameworkRef, ...]] = {
     "CRED-PLAINTEXT": (_CREDS_IN_FILES, _ATLAS_CREDS, _LLM_SENSITIVE, _RMF_GOVERN, _CIS_DATA),
     "CRED-PERMS": (_CREDS_IN_FILES, _ATLAS_CREDS, _RMF_GOVERN, _CIS_DATA),
     "CRED-GIT": (_CREDS_IN_FILES, _ATLAS_CREDS, _RMF_GOVERN, _CIS_DATA),
+    # one credential reused across servers: a compromise pivots via the shared
+    # (still valid) credential, so Valid Accounts leads the citation list
+    "CRED-REUSE": (_VALID_ACCOUNTS, _CREDS_IN_FILES, _ATLAS_CREDS, _RMF_GOVERN, _CIS_ACCESS),
     # exposure
     "EXPOSE-BIND": (_PUBLIC_FACING, _ATLAS_PUBLIC, _RMF_MANAGE, _CIS_CONFIG),
     "LAN-EXPOSED": (_PUBLIC_FACING, _ATLAS_PUBLIC, _RMF_MANAGE, _CIS_CONFIG),
