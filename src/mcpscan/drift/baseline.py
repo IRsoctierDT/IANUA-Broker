@@ -47,6 +47,24 @@ def render_baseline(snapshot: Snapshot, *, created_at: str | None = None) -> str
     )
 
 
+def baseline_created_at(text: str) -> str | None:
+    """The baseline's ``created_at`` metadata string, or ``None`` if unreadable.
+
+    Deliberately tolerant: ``created_at`` is advisory metadata (not covered by
+    the integrity digest), so a missing, null, or non-string field — or even
+    malformed JSON — degrades to ``None`` ("unknown age") rather than an error.
+    Integrity and shape validation stay :func:`load_baseline`'s job.
+    """
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    created = data.get("created_at")
+    return created if isinstance(created, str) else None
+
+
 def load_baseline(text: str, *, verify_digest: bool = True) -> Snapshot:
     """Parse a baseline file back into a Snapshot, verifying its integrity digest.
 

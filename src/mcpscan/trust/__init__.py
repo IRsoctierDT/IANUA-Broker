@@ -8,7 +8,13 @@ that a single hygiene check can't see. Read-only, offline, and secretless — a
 profile carries a credential count, never a value.
 """
 
-from .analyze import analyze_config, build_trust_report, profile_server
+from .analyze import (
+    analyze_config,
+    apply_shared_credentials,
+    build_trust_report,
+    config_credential_fingerprints,
+    profile_server,
+)
 from .collect import collect_trust
 from .model import (
     FactorScore,
@@ -25,7 +31,9 @@ __all__ = [
     "TrustProfile",
     "TrustReport",
     "analyze_config",
+    "apply_shared_credentials",
     "build_trust_report",
     "collect_trust",
+    "config_credential_fingerprints",
     "profile_server",
 ]

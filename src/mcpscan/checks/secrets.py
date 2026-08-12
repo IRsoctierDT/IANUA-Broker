@@ -1,21 +1,23 @@
 # Copyright 2026 Ivan Rozenblad
 # SPDX-License-Identifier: Apache-2.0
-"""Credential-hygiene checks (T-206 detection, T-207 at-rest).
+"""Credential-hygiene checks (T-206 detection, T-207 at-rest, blast radius).
 
 Detects plaintext secrets in server ``env`` blocks and ``.env`` files (by known
 provider patterns and by high-entropy values on secret-named keys), and flags
 secret-bearing files that are world/group-readable or git-tracked. Every detected
 secret is reduced to a fingerprint immediately (R1) — the raw value never leaves
-this module.
+this module. ``check_secret_reuse`` then joins those fingerprints across servers
+to surface the blast radius of one credential living in several places.
 """
 
 from __future__ import annotations
 
 import math
 import re
+from collections.abc import Sequence
 
 from ..adapters.base import ServerDecl
-from ..domain import Dimension, Finding, Location, Severity
+from ..domain import Dimension, Finding, Location, SecretFingerprint, Server, Severity
 from ..redaction import fingerprint_secret
 from . import EnvFile
 
@@ -138,3 +140,69 @@ def check_secret_at_rest(env_file: EnvFile) -> list[Finding]:
             )
         )
     return findings
+
+
+def _reuse_finding(
+    sha256_8: str,
+    n_locations: int,
+    own_path: str,
+    other_paths: Sequence[str],
+    own_fingerprint: SecretFingerprint,
+) -> Finding:
+    return Finding(
+        id="CRED-REUSE",
+        dimension=Dimension.CREDENTIAL,
+        severity=Severity.MEDIUM,
+        title=f"Secret reused across {n_locations} locations",
+        location=Location(path=own_path),
+        remediation=("Issue distinct credentials per server so one compromise cannot pivot."),
+        rationale=(
+            f"A secret with fingerprint sha256:{sha256_8} also appears at: "
+            + ", ".join(other_paths)
+            + ". Compromising any one holder exposes every location sharing it."
+        ),
+        secret=own_fingerprint,
+    )
+
+
+def check_secret_reuse(servers: Sequence[Server]) -> dict[str, list[Finding]]:
+    """Blast-radius join: the same secret fingerprint on two or more servers.
+
+    Joins every finding-carried :class:`~mcpscan.domain.SecretFingerprint` across
+    the given servers on ``(sha256_8, length)``. When one key appears on >= 2
+    distinct server ids, each involved server gains one MEDIUM ``CRED-REUSE``
+    finding. The rationale names the *other* locations by path only, plus the
+    shared ``sha256_8`` — the operator triage handle, already redaction-safe;
+    another finding's mask is never repeated here, and each emitted finding
+    carries only its own server's fingerprint.
+
+    Collision caveat (same stance as :class:`~mcpscan.domain.SecretFingerprint`):
+    ``sha256_8`` is a 32-bit truncation, so a false pairing between two distinct
+    secrets is possible. The finding is therefore triage-level (MEDIUM), not
+    proof of reuse.
+
+    Pure and deterministic: no I/O; ordering is fixed by sorted fingerprints and
+    sorted paths. Returns a ``server id -> findings to append`` mapping so the
+    engine can merge additions before grading.
+    """
+    occurrences: dict[tuple[str, int], list[tuple[str, SecretFingerprint, str]]] = {}
+    for server in servers:
+        for finding in server.findings:
+            fp = finding.secret
+            if fp is None:
+                continue
+            key = (fp.sha256_8, fp.length)
+            occurrences.setdefault(key, []).append((server.id, fp, finding.location.path))
+
+    additions: dict[str, list[Finding]] = {}
+    for (sha256_8, _length), seen in sorted(occurrences.items()):
+        involved = sorted({server_id for server_id, _, _ in seen})
+        if len(involved) < 2:
+            continue
+        for server_id in involved:
+            own_fp, own_path = next((fp, path) for sid, fp, path in seen if sid == server_id)
+            other_paths = sorted({path for sid, _, path in seen if sid != server_id})
+            additions.setdefault(server_id, []).append(
+                _reuse_finding(sha256_8, len(involved), own_path, other_paths, own_fp)
+            )
+    return additions

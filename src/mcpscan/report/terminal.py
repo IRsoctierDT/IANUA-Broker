@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from ..domain import Report, Severity
 from . import RenderOptions
-from .common import location_str, ordered_findings, secret_str, server_grade
+from .common import acceptance_str, location_str, ordered_findings, secret_str, server_grade
 
 _SEV_LABEL = {
     Severity.CRITICAL: "CRITICAL",
@@ -43,6 +43,11 @@ def render_terminal(report: Report, opts: RenderOptions | None = None) -> str:
         f"{counts[sev]} {_SEV_LABEL[sev].lower()}" for sev in Severity if counts[sev]
     )
     lines.append(f"  findings: {summary}")
+    if any(f.acceptance is not None for f in all_findings):
+        # Gate-vs-grade distinction, stated where the operator reads the grade.
+        lines.append(
+            "  note: accepted findings still lower the grade; they only stop failing the gate."
+        )
 
     for server in report.servers:
         if not server.findings:
@@ -53,6 +58,8 @@ def render_terminal(report: Report, opts: RenderOptions | None = None) -> str:
         for finding in ordered_findings(server):
             loc = location_str(finding, opts)
             lines.append(f"  [{_SEV_LABEL[finding.severity]:8}] {finding.title}")
+            if finding.acceptance is not None:
+                lines.append(f"             accept: {acceptance_str(finding.acceptance)}")
             lines.append(f"             where: {loc}")
             secret = secret_str(finding.secret, opts)
             if secret is not None:

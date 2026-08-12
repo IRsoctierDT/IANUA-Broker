@@ -140,6 +140,23 @@ def _partial_fingerprint(finding: Finding, uri: str) -> str:
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
+def _suppression(finding: Finding) -> dict[str, object] | None:
+    """A SARIF 2.1.0 suppression for an UNEXPIRED acceptance, else ``None``.
+
+    Per §3.27.23/§3.35: an accepted, external (ledger-based) suppression with a
+    justification naming the human owner and expiry. Mirrors the CLI gate — the
+    result stays in the log, marked suppressed. An expired acceptance emits no
+    suppression: the finding is live again.
+    """
+    acceptance = finding.acceptance
+    if acceptance is None or acceptance.expired:
+        return None
+    justification = f"Accepted by {acceptance.owner} until {acceptance.expires}"
+    if acceptance.reason:
+        justification += f": {acceptance.reason}"
+    return {"kind": "external", "status": "accepted", "justification": justification}
+
+
 def _rule(finding: Finding) -> dict[str, object]:
     return {
         "id": finding.id,
@@ -186,7 +203,7 @@ def report_to_sarif(
         return rule_index[finding.id]
 
     def _result(finding: Finding, location: dict[str, object], fp_key: str) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "ruleId": finding.id,
             "ruleIndex": _register(finding),
             "level": _LEVEL[finding.severity],
@@ -194,6 +211,10 @@ def report_to_sarif(
             "locations": [location],
             "partialFingerprints": {"mcpscanFindingHash/v1": _partial_fingerprint(finding, fp_key)},
         }
+        suppression = _suppression(finding)
+        if suppression is not None:
+            result["suppressions"] = [suppression]
+        return result
 
     for server in report.servers:
         for finding in ordered_findings(server):

@@ -15,6 +15,7 @@ import shutil
 import stat
 import subprocess  # nosec B404
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 
 from .adapters.base import HostAdapter, ParsedConfig
@@ -36,6 +37,7 @@ from .checks.pinning import (
 from .checks.secrets import (
     check_env_file_secrets,
     check_secret_at_rest,
+    check_secret_reuse,
     check_server_env,
 )
 from .checks.tool_scope import (
@@ -47,7 +49,9 @@ from .domain import Finding, Report, Server, ServerState
 from .io_safe import SafeReadError, safe_read_text
 from .scoring import dimension_grades, grade_findings, worst_grade
 
-SCHEMA_VERSION = "1.0"
+# "1.1": findings gained the optional "acceptance" object (Wave 1 Feature D —
+# named-human, expiring risk acceptances; see mcpscan.acceptance).
+SCHEMA_VERSION = "1.1"
 
 # (name, version, ecosystem) -> (vuln_ids, any_critical)
 OsvFetch = Callable[[str, str, str], "tuple[tuple[str, ...], bool]"]
@@ -312,6 +316,19 @@ def scan(
 
 
 def _assemble_report(servers: Sequence[Server], *, online: bool = False) -> Report:
+    """Grade the assembled servers into a Report.
+
+    Cross-server blast-radius findings (``CRED-REUSE``) are computed over the
+    full server set and appended to each involved server *before* grading, so
+    grades reflect them. Servers are frozen, so involved ones are rebuilt with
+    :func:`dataclasses.replace`.
+    """
+    reuse = check_secret_reuse(servers)
+    if reuse:
+        servers = [
+            replace(s, findings=s.findings + tuple(reuse[s.id])) if s.id in reuse else s
+            for s in servers
+        ]
     all_findings = [f for s in servers for f in s.findings]
     server_grades = [grade_findings(s.findings) for s in servers]
     return Report(

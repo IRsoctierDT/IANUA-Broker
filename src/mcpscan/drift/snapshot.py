@@ -26,6 +26,11 @@ def _server_fact(server: Server) -> PostureFact:
         "bind_addr": server.bind_addr or "",
         "port": "" if server.port is None else str(server.port),
         "exposure": exposure,
+        # Visibility loss must be diffable: a false→true flip on this key is the
+        # silent-failure class of drift (the scanner could no longer see what it
+        # saw at baseline time). Older baselines lack the key; diff treats
+        # absence as "false".
+        "inspection_incomplete": str(server.inspection_incomplete).lower(),
     }
     return PostureFact(
         kind=FactKind.SERVER,

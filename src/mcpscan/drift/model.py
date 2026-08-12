@@ -48,6 +48,24 @@ class ChangeType(Enum):
     CHANGED = "changed"
 
 
+class DriftCause(Enum):
+    """Why posture drifted — the Blue Report's degradation-cause vocabulary.
+
+    Each drift entry names the class of change behind it, so a reader can tell
+    a permission edit from a supply-chain change from a network exposure shift.
+    ``INSPECTION_REGRESSION`` is the silent-failure class: the scanner lost
+    visibility it previously had, which is a regression even though no finding
+    appeared — collection failing quietly is the more dangerous half of drift.
+    """
+
+    CONFIG_DRIFT = "config_drift"  # config/permission change
+    PROVENANCE_DRIFT = "provenance_drift"  # package/version provenance change
+    EXPOSURE_DRIFT = "exposure_drift"  # network exposure change
+    INSPECTION_REGRESSION = "inspection_regression"  # scanner lost visibility it had
+    INVENTORY_DRIFT = "inventory_drift"  # an inventoried asset appeared/disappeared
+    OTHER = "other"
+
+
 @dataclass(frozen=True)
 class PostureFact:
     """One normalized, comparable posture observation.
@@ -79,13 +97,14 @@ class Snapshot:
 
 @dataclass(frozen=True)
 class DriftEntry:
-    """One change between two snapshots, with its posture direction."""
+    """One change between two snapshots, with its posture direction and cause."""
 
     change: ChangeType
     kind: FactKind
     key: str
     summary: str
     direction: Direction
+    cause: DriftCause = DriftCause.OTHER
     detail_before: tuple[tuple[str, str], ...] = ()
     detail_after: tuple[tuple[str, str], ...] = ()
 
