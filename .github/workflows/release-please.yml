@@ -27,8 +27,16 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     outputs:
-      release_created: ${{ steps.rp.outputs.release_created }}
-      tag_name: ${{ steps.rp.outputs.tag_name }}
+      # Manifest mode (no explicit root component) exposes the "any release
+      # created" flag as `releases_created` and per-path outputs prefixed by the
+      # package path (".") — NOT the top-level `release_created`/`tag_name`,
+      # which stay empty here. release-please-action v4 backfilled those
+      # top-level names, so #60's v4->v5 bump silently made the old
+      # `release_created` gate skip every publish (1.4.1, 1.5.0 were tagged but
+      # never reached PyPI). Gate on `releases_created`; take the tag from the
+      # path-prefixed output.
+      releases_created: ${{ steps.rp.outputs.releases_created }}
+      tag_name: ${{ steps.rp.outputs['.--tag_name'] }}
     steps:
       - id: rp
         uses: googleapis/release-please-action@v5
@@ -37,7 +45,7 @@ jobs:
 
   publish:
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    if: ${{ needs.release-please.outputs.releases_created == 'true' }}
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
