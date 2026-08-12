@@ -27,7 +27,7 @@ from pathlib import Path
 from .sanitize import sanitize_remote
 
 SSH_NAMESPACE = "mcpscan-lan"
-_CRYPTO_HINT = "install the '[crypto]' extra (pip install ai-agentic-mcpscan[crypto]) for ed25519"
+_CRYPTO_HINT = "install the '[crypto]' extra (pip install ianua-broker[crypto]) for ed25519"
 
 # (manifest_bytes, signature_path, allowed_signers, operator) -> VerifyResult
 Verifier = Callable[[bytes, Path, Path, str], "VerifyResult"]

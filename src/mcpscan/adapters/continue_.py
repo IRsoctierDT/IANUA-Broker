@@ -22,7 +22,7 @@ from .base import HostAdapter, ParsedConfig, parse_server_list
 from .paths import continue_config_candidates
 
 _YAML_HINT = (
-    "Continue configs need the '[yaml]' extra (pip install ai-agentic-mcpscan[yaml]) to be audited"
+    "Continue configs need the '[yaml]' extra (pip install ianua-broker[yaml]) to be audited"
 )
 
 
