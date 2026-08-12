@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ai-agentic-mcpscan-v1.4.1...ai-agentic-mcpscan-v1.5.0) (2026-08-12)
+
+
+### Features
+
+* Wave 1 — continuous-validation foundations (Blue Report 2026) ([#75](https://github.com/IRsoctierDT/IANUA-Broker/issues/75)) ([31cf594](https://github.com/IRsoctierDT/IANUA-Broker/commit/31cf594a174ac23a0641f14cd8f4edc98407b8e2))
+
 ## [1.4.1](https://github.com/IRsoctierDT/IANUA-Broker/compare/ai-agentic-mcpscan-v1.4.0...ai-agentic-mcpscan-v1.4.1) (2026-07-27)
 
 
