@@ -105,6 +105,79 @@ def test_unvetted_privileged_relationship() -> None:
     assert "UNVETTED-PRIVILEGED" in _rel_ids(profile)
 
 
+# --- AUTONOMOUS-EXFIL-PATH triple composite (Wave 2 Feature I) ---
+def _exfil_server() -> ServerDecl:
+    # one dangerous auto-approved tool gives TOOL_PRIVILEGE + AUTONOMY, the env
+    # secret gives SECRET_ACCESS — all three factors on a single subject.
+    return ServerDecl(
+        name="agent",
+        command="npx",
+        args=("pg@1.0.0",),  # pinned: no provenance risk
+        env=(("PGPASSWORD", _SECRET),),
+        auto_approve=("run_command",),
+    )
+
+
+def test_autonomous_exfil_path_present_when_all_three_factors() -> None:
+    profile = profile_server(_exfil_server(), "/cfg/.mcp.json", "claude")
+    ids = _rel_ids(profile)
+    assert "AUTONOMOUS-EXFIL-PATH" in ids
+    # the pair relationships it subsumes still fire alongside it
+    assert {"PRIVILEGED-SECRET-HOLDER", "AUTONOMOUS-PRIVILEGED", "AUTONOMOUS-SECRET-HOLDER"} <= ids
+    exfil = next(r for r in profile.relationships if r.id == "AUTONOMOUS-EXFIL-PATH")
+    assert exfil.title == "Autonomous exfiltration path"
+    assert exfil.factors == (
+        TrustFactor.AUTONOMY,
+        TrustFactor.TOOL_PRIVILEGE,
+        TrustFactor.SECRET_ACCESS,
+    )
+
+
+def test_autonomous_exfil_path_reads_as_the_headline() -> None:
+    # emitted first so the triple leads over the pair relationships
+    profile = profile_server(_exfil_server(), "/cfg/.mcp.json", "claude")
+    assert profile.relationships[0].id == "AUTONOMOUS-EXFIL-PATH"
+
+
+def test_autonomous_exfil_path_does_not_change_score() -> None:
+    # relationship only: score is exactly the factor sum, so the composite adds
+    # zero points (the three factors are already billed individually).
+    profile = profile_server(_exfil_server(), "/cfg/.mcp.json", "claude")
+    total_risk = sum(f.risk for f in profile.factors)
+    assert profile.score == 100 - total_risk == 35  # 25 secret + 25 danger + 15 autonomy
+    assert profile.grade == "F"
+
+
+def test_autonomous_exfil_path_needs_all_three_factors() -> None:
+    # secret + autonomy but a NON-dangerous, non-wildcard tool → no TOOL_PRIVILEGE
+    server = ServerDecl(
+        name="agent",
+        command="npx",
+        args=("pg@1.0.0",),
+        env=(("PGPASSWORD", _SECRET),),
+        auto_approve=("read_file",),
+    )
+    profile = profile_server(server, "/cfg/.mcp.json", "claude")
+    ids = _rel_ids(profile)
+    assert "AUTONOMOUS-EXFIL-PATH" not in ids
+    assert "AUTONOMOUS-SECRET-HOLDER" in ids  # the two-factor pair still fires
+
+
+def test_autonomous_exfil_path_renders_in_terminal_and_json() -> None:
+    report = build_trust_report([profile_server(_exfil_server(), "/cfg/.mcp.json", "claude")])
+    terminal = render_terminal_trust(report, RenderOptions())
+    assert "AUTONOMOUS-EXFIL-PATH" in terminal
+    assert "Autonomous exfiltration path" in terminal
+    assert _SECRET not in terminal
+    out = render_json_trust(report, RenderOptions())
+    payload = json.loads(out)
+    rels = payload["profiles"][0]["relationships"]
+    exfil = next(r for r in rels if r["id"] == "AUTONOMOUS-EXFIL-PATH")
+    assert exfil["factors"] == ["autonomy", "tool_privilege", "secret_access"]
+    assert _SECRET not in out
+    assert payload["schema_version"] == "1.0"  # data change only — no shape bump
+
+
 def test_secrets_alone_create_no_relationship() -> None:
     server = ServerDecl(
         name="db", command="npx", args=("pg@1.0.0",), env=(("PGPASSWORD", _SECRET),)

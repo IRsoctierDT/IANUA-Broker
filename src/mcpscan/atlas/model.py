@@ -84,6 +84,12 @@ _ATLAS_PUBLIC = FrameworkRef(Framework.ATLAS, "AML.T0049", "Exploit Public-Facin
 
 _VALID_ACCOUNTS = FrameworkRef(Framework.ATTACK, "T1078", "Valid Accounts")
 
+# Token/credential stores at rest (Wave 2 Feature H). T1552 is the Unsecured
+# Credentials parent; T1528 names the theft of a stored application access token
+# — the exact prize a world-readable or stale token store hands an attacker.
+_UNSECURED_CREDS = FrameworkRef(Framework.ATTACK, "T1552", "Unsecured Credentials")
+_STEAL_APP_TOKEN = FrameworkRef(Framework.ATTACK, "T1528", "Steal Application Access Token")
+
 _CMD_INTERPRETER = FrameworkRef(Framework.ATTACK, "T1059", "Command and Scripting Interpreter")
 _ELEVATION = FrameworkRef(Framework.ATTACK, "T1548", "Abuse Elevation Control Mechanism")
 _LLM_AGENCY = FrameworkRef(Framework.OWASP_LLM, "LLM06", "Excessive Agency")
@@ -93,11 +99,33 @@ _LLM_AGENCY = FrameworkRef(Framework.OWASP_LLM, "LLM06", "Excessive Agency")
 MAPPINGS: dict[str, tuple[FrameworkRef, ...]] = {
     # credential hygiene
     "CRED-PLAINTEXT": (_CREDS_IN_FILES, _ATLAS_CREDS, _LLM_SENSITIVE, _RMF_GOVERN, _CIS_DATA),
+    # a plaintext secret in a RUNNING process's environment (Wave 2 Feature G):
+    # the same Unsecured-Credentials family as a key in a file, just read live
+    # from the process env — so it shares CRED-PLAINTEXT's citation stack
+    "CRED-ENV": (_CREDS_IN_FILES, _ATLAS_CREDS, _LLM_SENSITIVE, _RMF_GOVERN, _CIS_DATA),
     "CRED-PERMS": (_CREDS_IN_FILES, _ATLAS_CREDS, _RMF_GOVERN, _CIS_DATA),
     "CRED-GIT": (_CREDS_IN_FILES, _ATLAS_CREDS, _RMF_GOVERN, _CIS_DATA),
     # one credential reused across servers: a compromise pivots via the shared
     # (still valid) credential, so Valid Accounts leads the citation list
     "CRED-REUSE": (_VALID_ACCOUNTS, _CREDS_IN_FILES, _ATLAS_CREDS, _RMF_GOVERN, _CIS_ACCESS),
+    # token/credential store at rest: a readable file hands over a live token,
+    # so Steal Application Access Token leads; a stale token is the same prize
+    # left lying around
+    "TOKEN-STORE-PERMS": (
+        _STEAL_APP_TOKEN,
+        _UNSECURED_CREDS,
+        _CREDS_IN_FILES,
+        _ATLAS_CREDS,
+        _RMF_GOVERN,
+        _CIS_DATA,
+    ),
+    "TOKEN-STORE-EXPIRED": (
+        _STEAL_APP_TOKEN,
+        _UNSECURED_CREDS,
+        _ATLAS_CREDS,
+        _RMF_GOVERN,
+        _CIS_DATA,
+    ),
     # exposure
     "EXPOSE-BIND": (_PUBLIC_FACING, _ATLAS_PUBLIC, _RMF_MANAGE, _CIS_CONFIG),
     "LAN-EXPOSED": (_PUBLIC_FACING, _ATLAS_PUBLIC, _RMF_MANAGE, _CIS_CONFIG),

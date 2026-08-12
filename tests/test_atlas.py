@@ -80,6 +80,14 @@ def test_unknown_check_id_fails_soft() -> None:
     assert refs_for("NOT-A-CHECK") == ()
 
 
+def test_token_store_findings_map_to_credential_theft_techniques() -> None:
+    # Feature H rows: a token store leads with Steal Application Access Token.
+    for check_id in ("TOKEN-STORE-PERMS", "TOKEN-STORE-EXPIRED"):
+        refs = {r.ref for r in refs_for(check_id)}
+        assert "T1528" in refs  # Steal Application Access Token
+        assert "AML.T0055" in refs  # ATLAS Unsecured Credentials
+
+
 # --- rendering ---
 def test_matrix_render_lists_every_check() -> None:
     out = render_terminal_matrix()

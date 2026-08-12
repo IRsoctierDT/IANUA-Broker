@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Credential-hygiene checks (T-206 detection, T-207 at-rest, blast radius).
 
-Detects plaintext secrets in server ``env`` blocks and ``.env`` files (by known
-provider patterns and by high-entropy values on secret-named keys), and flags
-secret-bearing files that are world/group-readable or git-tracked. Every detected
-secret is reduced to a fingerprint immediately (R1) — the raw value never leaves
-this module. ``check_secret_reuse`` then joins those fingerprints across servers
-to surface the blast radius of one credential living in several places.
+Detects plaintext secrets in server ``env`` blocks, ``.env`` files, and the
+environments of running agent/MCP processes (by known provider patterns and by
+high-entropy values on secret-named keys), and flags secret-bearing files that
+are world/group-readable or git-tracked. Every detected secret is reduced to a
+fingerprint immediately (R1) — the raw value never leaves this module.
+``check_secret_reuse`` then joins those fingerprints across servers to surface
+the blast radius of one credential living in several places.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import re
 from collections.abc import Sequence
 
 from ..adapters.base import ServerDecl
+from ..discovery.process_env import ProcessEnv
 from ..domain import Dimension, Finding, Location, SecretFingerprint, Server, Severity
 from ..redaction import fingerprint_secret
 from . import EnvFile
@@ -105,6 +107,45 @@ def check_env_file_secrets(env_file: EnvFile) -> list[Finding]:
         label = _looks_secret(key, value)
         if label is not None:
             findings.append(_finding(label, Location(path=env_file.path, line=lineno), value))
+    return findings
+
+
+def _process_env_finding(label: str, proc_name: str, pid: int, raw_value: str) -> Finding:
+    return Finding(
+        id="CRED-ENV",
+        dimension=Dimension.CREDENTIAL,
+        severity=Severity.HIGH,
+        title=f"Plaintext {label} in running process env",
+        location=Location(path=f"process://{proc_name}[{pid}]"),
+        remediation=(
+            "Pass secrets to the process from a broker or secret manager at "
+            "runtime rather than baking them into the process environment, and "
+            "rotate the exposed credential."
+        ),
+        rationale=(
+            "A secret in a running process's environment is legible to anything "
+            "that can read the process (e.g. /proc/<pid>/environ) — a live, "
+            "already-loaded credential an attacker can lift without touching disk."
+        ),
+        secret=fingerprint_secret(raw_value),
+    )
+
+
+def check_process_env_secrets(entries: Sequence[ProcessEnv]) -> list[Finding]:
+    """Detect plaintext secrets in the environments of running agent processes.
+
+    Pure over its inputs (the psutil edge lives in ``discovery.process_env``):
+    reuses the same ``_looks_secret`` heuristic as the config/``.env`` checks, so
+    detection is consistent across surfaces. Every hit is reduced to a
+    :class:`~mcpscan.domain.SecretFingerprint` at detection — the raw environment
+    value never leaves this function on the finding.
+    """
+    findings: list[Finding] = []
+    for entry in entries:
+        for key, value in entry.env:
+            label = _looks_secret(key, value)
+            if label is not None:
+                findings.append(_process_env_finding(label, entry.proc_name, entry.pid, value))
     return findings
 
 

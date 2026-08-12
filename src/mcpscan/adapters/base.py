@@ -135,6 +135,23 @@ class HostAdapter(ABC):
         """
         return []
 
+    def credential_artifact_paths(self, system: str, env: Mapping[str, str]) -> list[PurePath]:
+        """Return known on-disk token/credential-store locations for this host.
+
+        This is THE shared credential-artifact registry (Wave 2 Feature H): the
+        single place that names where a host persists tokens/credentials at rest,
+        so the ``TOKEN-STORE`` check can grade them. It is deliberately
+        path-based; the process-environment credential surface (``CRED-ENV``)
+        shares this feature's privacy stance and redaction but enumerates running
+        processes instead, and must not duplicate this registry.
+
+        Default is ``[]`` — a host with no documented, well-known store simply
+        contributes nothing rather than guessing a location. As with
+        :meth:`default_config_paths`, a returned path is a *candidate*: the caller
+        checks which exist. Pure (computed from ``system``/``env``); no I/O.
+        """
+        return []
+
     @abstractmethod
     def parse(self, path: str, raw: str) -> ParsedConfig:
         """Parse raw config text into a :class:`ParsedConfig`.

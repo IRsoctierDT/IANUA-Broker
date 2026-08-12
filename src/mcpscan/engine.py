@@ -36,14 +36,17 @@ from .checks.pinning import (
 )
 from .checks.secrets import (
     check_env_file_secrets,
+    check_process_env_secrets,
     check_secret_at_rest,
     check_secret_reuse,
     check_server_env,
 )
+from .checks.token_store import check_token_store, decode_store
 from .checks.tool_scope import (
     check_permissions,
     check_server_auto_approve,
 )
+from .discovery.process_env import iter_agent_process_envs, looks_like_agent
 from .discovery.sockets import EnumerationResult, enumerate_listening
 from .domain import Finding, Report, Server, ServerState
 from .io_safe import SafeReadError, safe_read_text
@@ -234,6 +237,91 @@ def _read_config_file(path: Path) -> str | None:
         return None
 
 
+def _audit_token_stores(
+    adapters: Sequence[HostAdapter],
+    system: str,
+    env: Mapping[str, str],
+    now_epoch: int | None,
+) -> list[Server]:
+    """Grade each adapter's on-disk credential store (Feature H; opt-in only).
+
+    Reads only the paths the shared credential-artifact registry
+    (``HostAdapter.credential_artifact_paths``) names, each through ``io_safe``
+    (traversal-safe, size-capped). The token value never leaves the decode
+    boundary: :func:`decode_store` returns only non-secret metadata, so no raw
+    token is stored on a finding or printed. A store with safe permissions and no
+    expired token yields no finding and is not surfaced — presence is not a
+    vulnerability. Deterministic given ``now_epoch`` (supplied by ``cli``).
+    """
+    servers: list[Server] = []
+    seen: set[Path] = set()
+    for adapter in adapters:
+        for cand in adapter.credential_artifact_paths(system, env):
+            path = Path(str(cand))
+            if path in seen:
+                continue
+            seen.add(path)
+            if not path.is_file():
+                continue
+            try:
+                mode: int | None = stat.S_IMODE(path.stat().st_mode)
+            except OSError:
+                mode = None
+            raw = _read_config_file(path)
+            decoded = decode_store(raw) if raw is not None else None
+            findings = check_token_store(
+                str(path), mode, present=True, decoded=decoded, now_epoch=now_epoch
+            )
+            if findings:
+                servers.append(
+                    Server(
+                        id=f"token-store://{path}",
+                        bind_addr=None,
+                        port=None,
+                        pid=None,
+                        proc_name=None,
+                        state=ServerState.DECLARED,
+                        running=False,
+                        findings=tuple(findings),
+                    )
+                )
+    return servers
+
+
+def _audit_process_envs() -> list[Server]:
+    """Grade secrets in running agent/MCP process environments (Feature G; opt-in).
+
+    Enumerates only the invoking user's own agent/MCP processes (the scope
+    guardrail lives in :func:`looks_like_agent`) and reads their environments —
+    never every process on the box, and never a non-agent process's env. Each
+    process that carries a plaintext secret becomes one synthetic RUNNING server;
+    a process with no secret is not surfaced (running an agent is not a
+    vulnerability), mirroring the socket-exposure pattern. ``inspection_incomplete``
+    from the enumeration (own-user-only visibility, or a process that exited
+    mid-scan) rides along on each surfaced server. Secrets are fingerprinted at
+    detection, so no raw environment value reaches a finding.
+    """
+    result = iter_agent_process_envs(looks_like_agent)
+    servers: list[Server] = []
+    for entry in result.entries:
+        findings = check_process_env_secrets([entry])
+        if findings:
+            servers.append(
+                Server(
+                    id=f"process://{entry.proc_name}:{entry.pid}",
+                    bind_addr=None,
+                    port=None,
+                    pid=entry.pid,
+                    proc_name=entry.proc_name,
+                    state=ServerState.RUNNING,
+                    running=True,
+                    inspection_incomplete=result.inspection_incomplete,
+                    findings=tuple(findings),
+                )
+            )
+    return servers
+
+
 def scan(
     *,
     roots: Sequence[Path] | None = None,
@@ -242,6 +330,9 @@ def scan(
     enumerate_sockets: bool = True,
     online: bool = False,
     osv_fetch: OsvFetch | None = None,
+    inspect_token_stores: bool = False,
+    inspect_process_env: bool = False,
+    now_epoch: int | None = None,
 ) -> Report:
     """Run a full localhost scan and return a deterministic Report.
 
@@ -254,6 +345,17 @@ def scan(
             egress module is imported only on this path (NFR-SEC1).
         osv_fetch: Inject a fetcher (tests); defaults to the real OSV lookup when
             ``online`` is True.
+        inspect_token_stores: When True (opt-in), reads the on-disk credential
+            stores named by the shared credential-artifact registry and grades
+            their permissions/expiry (Feature H). Default False reads nothing
+            new — no default-on file reads.
+        inspect_process_env: When True (opt-in), reads the environment blocks of
+            the invoking user's own running agent/MCP processes to detect
+            plaintext secrets (Feature G). Default False enumerates no processes
+            and reads no environments.
+        now_epoch: "Now" in seconds since the epoch, supplied by ``cli`` so the
+            token-store expiry grade stays clock-free here. Only consulted when
+            ``inspect_token_stores`` is True.
     """
     system = system or platform.system()
     env = env if env is not None else os.environ
@@ -294,6 +396,14 @@ def scan(
                     str(env_path), raw, mode=mode, git_tracked=_git_tracked(env_path)
                 )
                 servers.append(_audit_env_file(env_file))
+
+    # --- credential/token stores at rest (opt-in; zero new reads by default) ---
+    if inspect_token_stores:
+        servers.extend(_audit_token_stores(adapters, system, env, now_epoch))
+
+    # --- secrets in running agent-process environments (opt-in; zero by default) ---
+    if inspect_process_env:
+        servers.extend(_audit_process_envs())
 
     # --- running-server discovery + exposure ---
     if enumerate_sockets:

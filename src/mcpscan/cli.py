@@ -12,8 +12,10 @@ Commands: ``scan`` (localhost posture, the default surface), ``inventory``
 ``atlas`` (the same findings mapped to security frameworks; see ``mcpscan.atlas``),
 ``trust`` (a per-agent Trust Score and the risky factor combinations; see
 ``mcpscan.trust``), ``baseline`` / ``diff`` (a posture snapshot and drift against
-it; see ``mcpscan.drift``), and ``lan`` (authorized network assessment — inert
-without a signed manifest; see ``mcpscan.lan``).
+it; see ``mcpscan.drift``), ``lan`` (authorized network assessment — inert
+without a signed manifest; see ``mcpscan.lan``), and ``schedule`` (emit an
+OS-native scheduler unit that re-runs scan+diff on a cadence — no daemon; see
+``mcpscan.schedule``).
 """
 
 from __future__ import annotations
@@ -52,13 +54,14 @@ def build_parser() -> argparse.ArgumentParser:
         "command",
         nargs="?",
         default=None,
-        choices=["scan", "inventory", "atlas", "trust", "baseline", "diff", "lan"],
+        choices=["scan", "inventory", "atlas", "trust", "baseline", "diff", "lan", "schedule"],
         help=(
             "The action to run: 'scan' (localhost posture), 'inventory' (classified "
             "AI/MCP asset list), 'atlas' (findings mapped to security frameworks), "
             "'trust' (per-agent Trust Score + risk relationships), 'baseline' (write "
-            "a posture snapshot), 'diff' (drift vs a baseline), or 'lan' (authorized "
-            "network assessment)."
+            "a posture snapshot), 'diff' (drift vs a baseline), 'lan' (authorized "
+            "network assessment), or 'schedule' (emit an OS scheduler unit that runs "
+            "scan+diff on a cadence)."
         ),
     )
     parser.add_argument(
@@ -109,6 +112,61 @@ def build_parser() -> argparse.ArgumentParser:
             "Backs up each file to <path>.mcpscan.bak first. Off by default "
             "(the tool is advise-only unless you pass --fix)."
         ),
+    )
+    parser.add_argument(
+        "--inspect-token-stores",
+        action="store_true",
+        help=(
+            "Read the on-disk credential/token stores of discovered hosts (e.g. "
+            "Claude Code's ~/.claude/.credentials.json) to grade file permissions "
+            "and, via an offline JWT decode, flag tokens already expired. No token "
+            "value is stored or printed. Off by default (reads nothing extra)."
+        ),
+    )
+    parser.add_argument(
+        "--inspect-process-env",
+        action="store_true",
+        help=(
+            "Read the environment blocks of your own running agent/MCP processes "
+            "to detect plaintext secrets. Values are redacted to a fingerprint at "
+            "detection, never stored or printed. Only your own processes are "
+            "readable. Off by default (enumerates no processes)."
+        ),
+    )
+
+    emit = parser.add_argument_group(
+        "emit", "Alert emission (used with 'scan' / 'diff'): push a REDACTED summary to a sink."
+    )
+    emit.add_argument(
+        "--emit",
+        action="append",
+        choices=("ndjson", "webhook", "syslog"),
+        metavar="SINK",
+        help=(
+            "Emit a redacted findings/drift summary to a sink (repeatable): "
+            "'ndjson' (append a JSON line to --emit-ndjson-path), 'webhook' (POST "
+            "JSON to --emit-webhook-url), or 'syslog' (local syslog). Off by "
+            "default; no secret value is ever sent — only an 8-hex fingerprint."
+        ),
+    )
+    emit.add_argument(
+        "--emit-ndjson-path",
+        metavar="PATH",
+        type=Path,
+        help="emit: file the 'ndjson' sink appends one JSON alert line to.",
+    )
+    emit.add_argument(
+        "--emit-webhook-url",
+        metavar="URL",
+        help=(
+            "emit: HTTP(S) endpoint the 'webhook' sink POSTs the alert to "
+            "(egress; the destination host is disclosed to stderr before the POST)."
+        ),
+    )
+    emit.add_argument(
+        "--emit-syslog",
+        action="store_true",
+        help="emit: send the alert to the local syslog (equivalent to --emit syslog).",
     )
 
     drift = parser.add_argument_group(
@@ -170,6 +228,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--min-grade",
         choices=("A", "B", "C", "D", "F"),
         help="trust: exit non-zero if any agent tool grades below this Trust grade.",
+    )
+
+    schedule = parser.add_argument_group(
+        "schedule", "OS scheduler unit generation (used only with the 'schedule' command)."
+    )
+    schedule.add_argument(
+        "--cadence",
+        choices=("hourly", "daily", "weekly"),
+        help=(
+            "schedule: how often the generated unit runs 'mcpscan scan' + "
+            "'mcpscan diff'. Required for the 'schedule' command."
+        ),
     )
 
     inventory = parser.add_argument_group(
@@ -245,6 +315,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_baseline(args)
     if args.command == "diff":
         return _run_diff(args)
+    if args.command == "schedule":
+        return _run_schedule(args)
     return _run_scan(args)
 
 
@@ -349,13 +421,169 @@ def _run_diff(args: argparse.Namespace) -> int:
         write_report(args.json, render_json_drift(report, staleness=staleness))
         print(f"wrote drift JSON: {args.json}", file=sys.stderr)
 
+    code = 0
     if args.fail_on_regression and report.regressions:
-        return 1
+        code = 1
     # Stale age gates only under the explicit opt-in flag (gate polarity: a
     # decayed-but-unchanged posture must not fail CI unless asked to).
     if args.fail_on_stale and staleness.stale:
-        return 1
+        code = 1
+
+    threshold = "regression" if args.fail_on_regression else "none"
+    _emit_alerts(args, report, kind="diff", gate_failed=bool(code), threshold=threshold)
+    return code
+
+
+_DEFAULT_BASELINE_NAME = ".mcpscan-baseline.json"
+
+
+def _resolve_mcpscan_invocation() -> tuple[str, ...]:
+    """Resolve how to invoke mcpscan from a scheduler (a filesystem lookup).
+
+    Kept in the CLI (never the pure generators) so :mod:`mcpscan.schedule` stays
+    I/O-free. Prefers an installed ``mcpscan`` on PATH; otherwise falls back to
+    ``python -m mcpscan`` so a venv/editable install still schedules cleanly.
+    """
+    import shutil
+
+    exe = shutil.which("mcpscan")
+    if exe is not None:
+        return (exe,)
+    return (sys.executable, "-m", "mcpscan")
+
+
+def _run_schedule(args: argparse.Namespace) -> int:
+    """Emit an OS-native scheduler unit that runs scan+diff on a cadence (Feature F).
+
+    No daemon and no clock: the unit text comes from a pure generator in
+    :mod:`mcpscan.schedule`. Default prints the unit + install guidance to stdout
+    and writes nothing; ``--out PATH`` writes the unit (a user-requested write)
+    and prints — but NEVER executes — the exact ``launchctl`` / ``systemctl`` /
+    ``schtasks`` command, because installing a scheduler is the user's action.
+    The scheduled command diffs a fresh scan against a baseline, so the user must
+    create that baseline first (disclosed to stderr). No egress anywhere.
+    """
+    import platform
+
+    from .schedule import (
+        DEFAULT_LABEL,
+        SERVICE_STEM,
+        Cadence,
+        SchedulePlan,
+        launchd_plist,
+        systemd_units,
+        windows_task_xml,
+    )
+
+    if args.cadence is None:
+        print("error: 'schedule' requires --cadence {hourly,daily,weekly}", file=sys.stderr)
+        return 2
+
+    cadence = Cadence(args.cadence)
+    roots = tuple(str(p.resolve()) for p in (args.root or [Path.cwd()]))
+    baseline = (
+        args.baseline.resolve()
+        if args.baseline is not None
+        else Path(roots[0]) / _DEFAULT_BASELINE_NAME
+    )
+    plan = SchedulePlan(
+        invocation=_resolve_mcpscan_invocation(),
+        roots=roots,
+        baseline=str(baseline),
+        cadence=cadence,
+    )
+
+    print(
+        "note: 'schedule' only generates a scheduler unit; it installs and runs "
+        "nothing. The scheduled command diffs a fresh scan against a baseline, so "
+        f"create it first: mcpscan baseline --out {baseline}",
+        file=sys.stderr,
+    )
+
+    system = platform.system()
+    if system == "Darwin":
+        target = _emit_single_unit(
+            launchd_plist(plan),
+            args.out,
+            default_path=Path.home() / "Library" / "LaunchAgents" / f"{DEFAULT_LABEL}.plist",
+        )
+        install = f"launchctl load {target}"
+        instructions = (
+            f"install (launchd): copy the plist to {target}, then run the command "
+            "below (unload later with 'launchctl unload <path>')."
+        )
+    elif system == "Linux":
+        timer_text, service_text = systemd_units(plan)
+        target = _emit_systemd_units(timer_text, service_text, args.out)
+        install = f"systemctl --user enable --now {target.name}"
+        instructions = (
+            "install (systemd --user): copy both units to ~/.config/systemd/user/, "
+            "run 'systemctl --user daemon-reload', then the command below."
+        )
+    elif system == "Windows":
+        target = _emit_single_unit(
+            windows_task_xml(plan), args.out, default_path=Path(f"{SERVICE_STEM}-task.xml")
+        )
+        install = f'schtasks /create /tn "{SERVICE_STEM}" /xml {target} /f'
+        instructions = (
+            "install (Task Scheduler): from an elevated prompt, register the saved "
+            "task XML with the command below."
+        )
+    else:
+        print(
+            f"error: 'schedule' does not support this platform ({system!r}); supported: "
+            "Darwin (launchd), Linux (systemd), Windows (Task Scheduler).",
+            file=sys.stderr,
+        )
+        return 2
+
+    guidance = f"{instructions}\ninstall (run it yourself; schedule never does): {install}\n"
+    # Default mode routes guidance to stdout (spec: unit text + instructions to
+    # stdout); --out mode already wrote to disk, so guidance is progress → stderr.
+    print(guidance, end="", file=sys.stderr if args.out is not None else sys.stdout)
     return 0
+
+
+def _emit_single_unit(content: str, out: Path | None, *, default_path: Path) -> Path:
+    """Write a single unit under ``--out`` or print it; return the install target.
+
+    In write mode the unit lands at ``out`` (owner-only, via ``write_report``) and
+    that path is the install target. In print mode the text goes to stdout and the
+    conventional ``default_path`` is returned so the install command still names a
+    real location.
+    """
+    from .report.writer import write_report
+
+    if out is not None:
+        write_report(out, content)
+        print(f"wrote scheduler unit: {out}", file=sys.stderr)
+        return out
+    print(content, end="" if content.endswith("\n") else "\n")
+    return default_path
+
+
+def _emit_systemd_units(timer_text: str, service_text: str, out: Path | None) -> Path:
+    """Write/print the systemd timer+service pair; return the timer install target.
+
+    With ``--out``, the timer is written at ``out`` and the service alongside it
+    (``<stem>.service``). Without ``--out``, both units print to stdout under
+    labelled headers and the conventional ``mcpscan.timer`` name is returned.
+    """
+    from .report.writer import write_report
+    from .schedule import SERVICE_STEM
+
+    if out is not None:
+        service_path = out.with_suffix(".service")
+        write_report(out, timer_text)
+        write_report(service_path, service_text)
+        print(f"wrote scheduler unit: {out}", file=sys.stderr)
+        print(f"wrote scheduler unit: {service_path}", file=sys.stderr)
+        return out
+    print(f"# --- {SERVICE_STEM}.timer ---")
+    print(timer_text, end="" if timer_text.endswith("\n") else "\n")
+    print(f"# --- {SERVICE_STEM}.service ---")
+    print(service_text, end="" if service_text.endswith("\n") else "\n")
+    return Path(f"{SERVICE_STEM}.timer")
 
 
 def _run_atlas(args: argparse.Namespace) -> int:
@@ -425,7 +653,33 @@ def _run_scan(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
-    report = scan(roots=args.root, online=args.online)
+    # "now" is read here, once, and passed into the pure token-store check so no
+    # clock is consulted below the CLI layer (determinism guardrail).
+    now_epoch: int | None = None
+    if args.inspect_token_stores:
+        from datetime import datetime
+
+        now_epoch = int(datetime.now(UTC).timestamp())
+        print(
+            "note: --inspect-token-stores reads token-store file contents to check "
+            "expiry; no token value is stored or printed.",
+            file=sys.stderr,
+        )
+    if args.inspect_process_env:
+        print(
+            "note: --inspect-process-env reads environment blocks of your own "
+            "running agent/MCP processes to detect plaintext secrets; values are "
+            "redacted, never stored.",
+            file=sys.stderr,
+        )
+
+    report = scan(
+        roots=args.root,
+        online=args.online,
+        inspect_token_stores=args.inspect_token_stores,
+        inspect_process_env=args.inspect_process_env,
+        now_epoch=now_epoch,
+    )
     report = _apply_acceptance_ledger(report, args.root)
     opts = RenderOptions(
         show_secrets=args.show_secrets,
@@ -455,7 +709,9 @@ def _run_scan(args: argparse.Namespace) -> int:
     if args.fix:
         _apply_fixes(args.root, opts)
 
-    return _exit_code(report, args.fail_on)
+    code = _exit_code(report, args.fail_on)
+    _emit_alerts(args, report, kind="scan", gate_failed=bool(code), threshold=args.fail_on)
+    return code
 
 
 def _run_lan(args: argparse.Namespace) -> int:
@@ -617,6 +873,65 @@ def _apply_acceptance_ledger(report: Report, roots: list[Path] | None) -> Report
     for warning in apply_warnings:
         print(f"warning: {warning}", file=sys.stderr)
     return report
+
+
+def _emit_alerts(
+    args: argparse.Namespace,
+    report: object,
+    *,
+    kind: str,
+    gate_failed: bool,
+    threshold: str,
+) -> None:
+    """Push a redacted alert to each requested sink, AFTER rendering (Feature E).
+
+    Opt-in and disclosed: with no ``--emit`` sink selected this returns before it
+    imports the emit layer or touches any file/socket — the default run alerts
+    nowhere. ``generated_at`` is read here, once (the CLI is the only clock), and
+    handed to the pure payload builder. The webhook's egress destination is
+    disclosed to stderr before the POST fires; the payload carries no secret
+    value, only an 8-hex fingerprint.
+    """
+    sinks: list[str] = list(args.emit or [])
+    if args.emit_syslog and "syslog" not in sinks:
+        sinks.append("syslog")
+    if not sinks:
+        return
+
+    from datetime import datetime
+    from urllib.parse import urlsplit
+
+    from .emit import build_emit_payload, emit_ndjson, emit_syslog, emit_webhook
+
+    generated_at = datetime.now(UTC).isoformat()
+    payload = build_emit_payload(
+        report,  # type: ignore[arg-type]  # Report for scan, DriftReport for diff
+        kind=kind,
+        generated_at=generated_at,
+        gate_failed=gate_failed,
+        threshold=threshold,
+    )
+
+    if "ndjson" in sinks:
+        if args.emit_ndjson_path is None:
+            print("error: --emit ndjson requires --emit-ndjson-path PATH", file=sys.stderr)
+        else:
+            emit_ndjson(args.emit_ndjson_path, payload)
+            print(f"emitted {kind} alert (ndjson) to {args.emit_ndjson_path}", file=sys.stderr)
+    if "webhook" in sinks:
+        if args.emit_webhook_url is None:
+            print("error: --emit webhook requires --emit-webhook-url URL", file=sys.stderr)
+        else:
+            host = urlsplit(args.emit_webhook_url).netloc or args.emit_webhook_url
+            print(
+                f"note: --emit webhook POSTs a REDACTED findings summary to {host}; "
+                "no secret values are sent.",
+                file=sys.stderr,
+            )
+            emit_webhook(args.emit_webhook_url, payload)
+    if "syslog" in sinks:
+        emit_syslog(payload)
+        print(f"emitted {kind} alert (syslog).", file=sys.stderr)
 
 
 def _exit_code(report: Report, fail_on: str) -> int:
