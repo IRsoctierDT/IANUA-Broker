@@ -675,7 +675,9 @@ def test_telemetry_absent_dir_flags_absent(tmp_path: Path) -> None:
     )
     servers = _telemetry_servers(report)
     assert len(servers) == 1
-    assert servers[0].id.endswith("Library/Logs/Claude")
+    # Separator-agnostic: the id carries host path separators (backslashes on
+    # Windows), the surface is the macOS Claude log dir.
+    assert servers[0].id.replace("\\", "/").endswith("Library/Logs/Claude")
     assert {f.id for f in servers[0].findings} == {"TELEMETRY-ABSENT"}
 
 

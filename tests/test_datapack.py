@@ -395,12 +395,19 @@ _FIXTURE = json.dumps(
 )
 
 
-def _scan_ids(tmp_path: Path, *, home: Path | None = None) -> set[str]:
+def _scan_ids(
+    tmp_path: Path,
+    *,
+    home: Path | None = None,
+    system: str = "Linux",
+    env: dict[str, str] | None = None,
+) -> set[str]:
     project = tmp_path / "project"
     project.mkdir(exist_ok=True)
     (project / ".mcp.json").write_text(_FIXTURE, encoding="utf-8")
-    env = {"HOME": str(home)} if home is not None else {}
-    report = scan(roots=[project], system="Linux", env=env, enumerate_sockets=False)
+    if env is None:
+        env = {"HOME": str(home)} if home is not None else {}
+    report = scan(roots=[project], system=system, env=env, enumerate_sockets=False)
     return {f.id for s in report.servers for f in s.findings}
 
 
@@ -611,5 +618,9 @@ def test_update_datapack_ed25519_end_to_end_then_scan_picks_it_up(
         ]
     )
     assert rc == 0
-    # A scan under the same HOME now applies the custom pattern.
-    assert "CRED-PLAINTEXT" in _scan_ids(tmp_path, home=home)
+    # The scan must resolve the datapack store exactly as the CLI install did —
+    # same OS + environment. Forcing system="Linux" here (as the default helper
+    # does) would look for the POSIX store path while the install used the real
+    # OS's location (%APPDATA% on Windows), so the pack would be missed.
+    ids = _scan_ids(tmp_path, system=platform.system(), env=dict(os.environ))
+    assert "CRED-PLAINTEXT" in ids
