@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.0.0...ianua-broker-v1.1.0) (2026-08-12)
+
+
+### Features
+
+* wave 2 — detection reach and quiet-read surfaces (Blue Report 2026) ([#81](https://github.com/IRsoctierDT/IANUA-Broker/issues/81)) ([cb77f70](https://github.com/IRsoctierDT/IANUA-Broker/commit/cb77f701e80cdb506874882cdcfdc4ce7eca8474))
+
 ## [1.0.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.5.0...ianua-broker-v1.0.0) (2026-08-12)
 
 
