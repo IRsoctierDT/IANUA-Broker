@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Unit tests for the Cline host adapter (ADR-4 fourth adapter)."""
 
 from __future__ import annotations

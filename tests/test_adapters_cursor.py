@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Unit tests for the Cursor host adapter (ADR-4 second adapter)."""
 
 from __future__ import annotations

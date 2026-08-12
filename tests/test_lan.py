@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Tests for the LAN assessment safety core (Phase A: manifest/scope/budgets/…)."""
 
 from __future__ import annotations

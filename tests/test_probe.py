@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Probe trust-boundary tests (T-203): loopback-only, fail closed."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Unit tests for bounded, traversal-safe reads (T-104)."""
 
 from __future__ import annotations

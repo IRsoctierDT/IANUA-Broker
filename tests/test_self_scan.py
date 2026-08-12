@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Self-scan: mcpscan must pass its own scan (ticket T-403, NFR-SEC4)."""
 
 from __future__ import annotations

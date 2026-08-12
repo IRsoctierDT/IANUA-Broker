@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Unit tests for secret redaction (R1 / T-206 slice)."""
 
 from __future__ import annotations

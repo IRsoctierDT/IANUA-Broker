@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Unit tests for the opt-in --fix remediation."""
 
 from __future__ import annotations

@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """Tier-1 inventory: classification signals, collection, rendering, sanitizing."""
 
 from __future__ import annotations

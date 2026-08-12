@@ -1,3 +1,5 @@
+# Copyright 2026 Ivan Rozenblad
+# SPDX-License-Identifier: Apache-2.0
 """End-to-end dogfood: the full pipeline over a realistic project (ticket T-402).
 
 This is the repo-verifiable half of T-402. It runs the real ``scan`` over a
