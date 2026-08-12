@@ -48,9 +48,9 @@ command: `mcpscan`. License: Apache-2.0.
 ## Install
 
 ```bash
-pipx install ai-agentic-mcpscan            # provides the `mcpscan` command
-pipx install "ai-agentic-mcpscan[yaml]"    # + audit Continue's config.yaml
-pipx install "ai-agentic-mcpscan[crypto]"  # + verify ed25519 LAN manifests
+pipx install ianua-broker            # provides the `mcpscan` command
+pipx install "ianua-broker[yaml]"    # + audit Continue's config.yaml
+pipx install "ianua-broker[crypto]"  # + verify ed25519 LAN manifests
 ```
 
 The base install is stdlib-only (plus `psutil`). The optional `[yaml]` and
@@ -267,7 +267,7 @@ steps:
   - uses: actions/checkout@v7
   - uses: actions/setup-python@v5
     with: { python-version: "3.11" }
-  - run: pip install ai-agentic-mcpscan
+  - run: pip install ianua-broker
   - run: mcpscan scan --sarif results.sarif --fail-on critical
     continue-on-error: true
   - uses: github/codeql-action/upload-sarif@v4
@@ -329,7 +329,7 @@ model: [`docs/proposals/LAN_SCANNING.md`](docs/proposals/LAN_SCANNING.md).
 
 ## Status & roadmap
 
-**v1.0 is released on [PyPI](https://pypi.org/project/ai-agentic-mcpscan/)** —
+**v1.0 is released on [PyPI](https://pypi.org/project/ianua-broker/)** —
 stable and production-ready, behind a green CI gate (ruff, mypy --strict, bandit,
 pytest with a 90% branch-coverage floor, on macOS/Linux/Windows × Python
 3.11–3.13), with SBOM + checksums on every release. The 1.0 bar it shipped
