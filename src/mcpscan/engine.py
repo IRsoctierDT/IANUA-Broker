@@ -205,6 +205,22 @@ def _server_from_socket(
     )
 
 
+def _posix_file_mode(path: Path) -> int | None:
+    """Return ``st_mode & 0o777`` on POSIX, else ``None``.
+
+    The group/world-readable at-rest checks are a POSIX concept. On Windows
+    ``chmod`` only toggles the read-only bit and ``st_mode`` reports a fixed
+    ``0o666``-ish value, so ``mode & 0o077`` would fire on every file. Returning
+    ``None`` off POSIX keeps the perms check from raising a meaningless finding.
+    """
+    if os.name != "posix":
+        return None
+    try:
+        return stat.S_IMODE(path.stat().st_mode)
+    except OSError:
+        return None
+
+
 def _git_tracked(path: Path) -> bool | None:
     """Whether git tracks ``path``; ``None`` when unknown (no git, no repo, error).
 
@@ -263,10 +279,7 @@ def _audit_token_stores(
             seen.add(path)
             if not path.is_file():
                 continue
-            try:
-                mode: int | None = stat.S_IMODE(path.stat().st_mode)
-            except OSError:
-                mode = None
+            mode = _posix_file_mode(path)
             raw = _read_config_file(path)
             decoded = decode_store(raw) if raw is not None else None
             findings = check_token_store(
@@ -391,9 +404,11 @@ def scan(
         if env_path.exists():
             raw = _read_config_file(env_path)
             if raw is not None:
-                mode = stat.S_IMODE(env_path.stat().st_mode)
                 env_file = parse_env_text(
-                    str(env_path), raw, mode=mode, git_tracked=_git_tracked(env_path)
+                    str(env_path),
+                    raw,
+                    mode=_posix_file_mode(env_path),
+                    git_tracked=_git_tracked(env_path),
                 )
                 servers.append(_audit_env_file(env_file))
 

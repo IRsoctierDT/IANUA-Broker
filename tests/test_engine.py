@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import shutil
 import subprocess  # nosec B404
 from pathlib import Path
@@ -486,6 +487,10 @@ def _token_store_servers(report: object) -> list[object]:
     return [s for s in report.servers if s.id.startswith("token-store://")]  # type: ignore[attr-defined]
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="world/group-readable is a POSIX mode concept; Windows chmod is a no-op",
+)
 def test_token_store_world_readable_flags_perms(tmp_path: Path) -> None:
     _write_claude_credentials(
         tmp_path, json.dumps({"claudeAiOauth": {"accessToken": "sk-ant-oat-opaque"}}), mode=0o644
