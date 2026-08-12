@@ -310,8 +310,7 @@ predictable, not speculative): `services/`, `packages/`, `docker/`, `infra/`
 | CodeQL (default setup) | GitHub-managed | semantic security analysis (python + actions); enabled in repo settings, not a workflow file |
 | `dependency-review.yml` | PR | block PRs that add vulnerable/incompatible deps |
 | `pr-title.yml` | PR | enforce Conventional Commit PR titles |
-| `release-please.yml` | push → main | maintain release PR (version + changelog), tag, and publish to PyPI via Trusted Publishing — the sole release path |
-| `sbom.yml` | GitHub Release | attach CycloneDX SBOM + SHA-256 checksums |
+| `release-please.yml` | push → main | maintain release PR (version + changelog), tag, publish to PyPI via Trusted Publishing, and attach the CycloneDX SBOM + SHA-256 checksums — the sole release path |
 | `dependabot.yml` | schedule | pip + github-actions update PRs, weekly |
 
 > **CodeQL & dependency-review are GitHub Advanced Security features** — free on
@@ -336,7 +335,7 @@ branch protection (Phase 2). Ongoing development is never interrupted.
 
 - **Phase 1 — Foundation (this PR, additive):** `CODE_OF_CONDUCT.md`,
   `CODEOWNERS`, `dependabot.yml`, `codeql.yml`, `dependency-review.yml`,
-  `pr-title.yml`, `sbom.yml`, commit template, this document. All run green
+  `pr-title.yml`, commit template, this document. All run green
   alongside current CI; none block yet.
 - **Phase 2 — Enforcement (operator):** enable secret scanning + push
   protection, Dependabot alerts, and branch protection on `main` (Section 5).

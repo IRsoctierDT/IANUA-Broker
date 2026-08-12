@@ -41,7 +41,7 @@ bumps the major. You never edit the version in `pyproject.toml` by hand.
 3. When you're ready to ship, **merge the release PR**. release-please tags the
    release, creates the GitHub Release, and the `publish` job builds the
    sdist+wheel and — after your `pypi`-environment approval, if enabled —
-   Trusted-Publishes to PyPI. The `sbom.yml` workflow attaches a CycloneDX SBOM
+   Trusted-Publishes to PyPI. The same `publish` job attaches a CycloneDX SBOM
    and SHA-256 checksums to the Release.
 4. Verify: `pipx install ianua-broker` on a clean machine, then `mcpscan
    --version`.
