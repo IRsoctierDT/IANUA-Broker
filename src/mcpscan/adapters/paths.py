@@ -66,6 +66,27 @@ def claude_config_candidates(
     return candidates
 
 
+def claude_credential_candidates(
+    system: str,
+    env: Mapping[str, str],
+) -> list[PurePath]:
+    """Return candidate Claude on-disk credential/token-store paths for the OS.
+
+    Claude Code persists its OAuth login as a JSON token store at
+    ``~/.claude/.credentials.json`` (the ``claudeAiOauth`` object with the
+    access/refresh tokens and an ``expiresAt``) on every OS. On macOS the login
+    is usually kept in the Keychain instead, so the file is often absent there —
+    the caller checks existence, so returning the candidate on every OS is safe
+    and conservative. This is the only credential store whose location is
+    well-documented enough to name (Feature H registry seam); other hosts return
+    the default ``[]`` rather than guess.
+    """
+    home = _home(system, env)
+    if home is None:
+        return []
+    return [home / ".claude" / ".credentials.json"]
+
+
 def cursor_config_candidates(
     system: str,
     env: Mapping[str, str],

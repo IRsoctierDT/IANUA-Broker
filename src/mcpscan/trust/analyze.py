@@ -92,6 +92,33 @@ def _provenance_factor(server: ServerDecl, path: str) -> FactorScore:
 def _relationships(active: set[TrustFactor]) -> list[RiskRelationship]:
     rels: list[RiskRelationship] = []
     F = TrustFactor
+    # Headline composite: autonomy + tool-privilege + secret-access all active on
+    # ONE subject is the full autonomous-exfiltration path — the tool can read the
+    # secrets, wields dangerous/wildcard tools to act on them, AND auto-approves,
+    # so it exfiltrates with no human in the loop (the mechanism behind the report's
+    # worst-prevented vector, data exfiltration). Emitted FIRST so the triple reads
+    # as the headline above the pair relationships it subsumes — those still fire
+    # below because each names a different facet of the same subject.
+    #
+    # Relationship ONLY — no score/grade/factor-risk change: all three factors are
+    # already billed individually, so adding points here would double-bill the same
+    # evidence (same stance as SHARED-CREDENTIAL). When a future EXPOSURE_REACH
+    # factor lands (Wave 3), this exfil path and any EXPOSED-PRIVILEGED relationship
+    # must be reconciled so the same reachable-egress condition is not double-signalled.
+    if F.AUTONOMY in active and F.TOOL_PRIVILEGE in active and F.SECRET_ACCESS in active:
+        rels.append(
+            RiskRelationship(
+                id="AUTONOMOUS-EXFIL-PATH",
+                title="Autonomous exfiltration path",
+                rationale=(
+                    "This tool holds credentials, wields dangerous/wildcard tools, AND "
+                    "auto-approves — so it can read secrets and act on them with no human "
+                    "in the loop, the mechanism behind the report's worst-prevented vector "
+                    "(data exfiltration)."
+                ),
+                factors=(F.AUTONOMY, F.TOOL_PRIVILEGE, F.SECRET_ACCESS),
+            )
+        )
     if F.SECRET_ACCESS in active and F.TOOL_PRIVILEGE in active:
         rels.append(
             RiskRelationship(

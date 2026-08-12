@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import json
+import os
 import shutil
 import subprocess  # nosec B404
 from pathlib import Path
@@ -462,3 +464,184 @@ def test_continue_user_level_config_is_discovered(tmp_path: Path) -> None:
     report = scan(roots=[], system="Linux", env={"HOME": str(tmp_path)}, enumerate_sockets=False)
     ids = {f.id for s in report.servers for f in s.findings}
     assert {"CRED-PLAINTEXT", "PIN-UNPINNED"} <= ids
+
+
+# --- token/credential store inspection (Wave 2 Feature H; opt-in) ---
+def _jwt(payload: dict[str, object]) -> str:
+    def seg(obj: dict[str, object]) -> str:
+        return base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b"=").decode("ascii")
+
+    return f"{seg({'alg': 'none'})}.{seg(payload)}.sig"
+
+
+def _write_claude_credentials(tmp_path: Path, body: str, *, mode: int) -> Path:
+    cred_dir = tmp_path / ".claude"
+    cred_dir.mkdir(exist_ok=True)
+    cred = cred_dir / ".credentials.json"
+    cred.write_text(body, encoding="utf-8")
+    cred.chmod(mode)
+    return cred
+
+
+def _token_store_servers(report: object) -> list[object]:
+    return [s for s in report.servers if s.id.startswith("token-store://")]  # type: ignore[attr-defined]
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="world/group-readable is a POSIX mode concept; Windows chmod is a no-op",
+)
+def test_token_store_world_readable_flags_perms(tmp_path: Path) -> None:
+    _write_claude_credentials(
+        tmp_path, json.dumps({"claudeAiOauth": {"accessToken": "sk-ant-oat-opaque"}}), mode=0o644
+    )
+    report = scan(
+        roots=[],
+        system="Linux",
+        env={"HOME": str(tmp_path)},
+        enumerate_sockets=False,
+        inspect_token_stores=True,
+        now_epoch=2_000_000_000,
+    )
+    stores = _token_store_servers(report)
+    assert len(stores) == 1
+    assert stores[0].id.endswith(".claude/.credentials.json")
+    assert {f.id for f in stores[0].findings} == {"TOKEN-STORE-PERMS"}
+
+
+def test_token_store_expired_jwt_flags_expired(tmp_path: Path) -> None:
+    body = json.dumps({"claudeAiOauth": {"accessToken": _jwt({"exp": 1_000_000_000})}})
+    _write_claude_credentials(tmp_path, body, mode=0o600)  # safe perms -> expiry only
+    report = scan(
+        roots=[],
+        system="Linux",
+        env={"HOME": str(tmp_path)},
+        enumerate_sockets=False,
+        inspect_token_stores=True,
+        now_epoch=2_000_000_000,
+    )
+    stores = _token_store_servers(report)
+    assert len(stores) == 1
+    assert {f.id for f in stores[0].findings} == {"TOKEN-STORE-EXPIRED"}
+
+
+def test_token_store_not_read_without_optin(tmp_path: Path) -> None:
+    # Default scan reads nothing new: the store never appears, even world-readable.
+    _write_claude_credentials(
+        tmp_path, json.dumps({"claudeAiOauth": {"accessToken": "sk-ant-oat-opaque"}}), mode=0o644
+    )
+    report = scan(roots=[], system="Linux", env={"HOME": str(tmp_path)}, enumerate_sockets=False)
+    assert _token_store_servers(report) == []
+
+
+def test_token_store_safe_and_undecodable_yields_no_server(tmp_path: Path) -> None:
+    # 0o600 + no decodable token: presence is not a vulnerability -> no server.
+    _write_claude_credentials(tmp_path, "%%% not json, not a jwt %%%", mode=0o600)
+    report = scan(
+        roots=[],
+        system="Linux",
+        env={"HOME": str(tmp_path)},
+        enumerate_sockets=False,
+        inspect_token_stores=True,
+        now_epoch=2_000_000_000,
+    )
+    assert _token_store_servers(report) == []
+
+
+def test_token_store_absent_file_is_silent(tmp_path: Path) -> None:
+    # No credentials file at all: opt-in on, but nothing to grade -> no crash.
+    report = scan(
+        roots=[],
+        system="Linux",
+        env={"HOME": str(tmp_path)},
+        enumerate_sockets=False,
+        inspect_token_stores=True,
+        now_epoch=2_000_000_000,
+    )
+    assert _token_store_servers(report) == []
+
+
+# --- process-env secret detection (Wave 2 Feature G, CRED-ENV) ---
+_PROC_KEY = "sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+
+def _process_servers(report: object) -> list[object]:
+    return [s for s in report.servers if s.id.startswith("process://")]  # type: ignore[attr-defined]
+
+
+def _stub_process_envs(monkeypatch: pytest.MonkeyPatch, result: object) -> list[bool]:
+    """Replace the engine's process-env enumerator; record whether it was called."""
+    from mcpscan.discovery.process_env import ProcessEnvResult
+
+    called: list[bool] = []
+
+    def _fake(is_agent: object) -> object:
+        called.append(True)
+        return result if result is not None else ProcessEnvResult(entries=())
+
+    monkeypatch.setattr(engine_mod, "iter_agent_process_envs", _fake)
+    return called
+
+
+def test_process_env_secret_flags_cred_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    from mcpscan.discovery.process_env import ProcessEnv, ProcessEnvResult
+
+    entry = ProcessEnv(pid=42, proc_name="claude", env=(("ANTHROPIC_API_KEY", _PROC_KEY),))
+    _stub_process_envs(monkeypatch, ProcessEnvResult(entries=(entry,)))
+    report = scan(
+        roots=[], system="Linux", env={}, enumerate_sockets=False, inspect_process_env=True
+    )
+    servers = _process_servers(report)
+    assert len(servers) == 1
+    assert servers[0].id == "process://claude:42"
+    assert servers[0].running is True
+    assert {f.id for f in servers[0].findings} == {"CRED-ENV"}
+
+
+def test_process_env_not_read_without_optin(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Default scan enumerates NO processes: the stub is never even invoked.
+    from mcpscan.discovery.process_env import ProcessEnv, ProcessEnvResult
+
+    entry = ProcessEnv(pid=42, proc_name="claude", env=(("ANTHROPIC_API_KEY", _PROC_KEY),))
+    called = _stub_process_envs(monkeypatch, ProcessEnvResult(entries=(entry,)))
+    report = scan(roots=[], system="Linux", env={}, enumerate_sockets=False)
+    assert called == []  # enumerator never touched by default
+    assert _process_servers(report) == []
+
+
+def test_process_env_clean_process_is_not_surfaced(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An agent process with no secret in its env yields no server (presence of a
+    # running agent is not itself a vulnerability).
+    from mcpscan.discovery.process_env import ProcessEnv, ProcessEnvResult
+
+    entry = ProcessEnv(pid=7, proc_name="claude", env=(("LOG_LEVEL", "debug"),))
+    _stub_process_envs(monkeypatch, ProcessEnvResult(entries=(entry,)))
+    report = scan(
+        roots=[], system="Linux", env={}, enumerate_sockets=False, inspect_process_env=True
+    )
+    assert _process_servers(report) == []
+
+
+def test_process_env_propagates_inspection_incomplete(monkeypatch: pytest.MonkeyPatch) -> None:
+    from mcpscan.discovery.process_env import ProcessEnv, ProcessEnvResult
+
+    entry = ProcessEnv(pid=42, proc_name="claude", env=(("ANTHROPIC_API_KEY", _PROC_KEY),))
+    _stub_process_envs(monkeypatch, ProcessEnvResult(entries=(entry,), inspection_incomplete=True))
+    report = scan(
+        roots=[], system="Linux", env={}, enumerate_sockets=False, inspect_process_env=True
+    )
+    assert _process_servers(report)[0].inspection_incomplete is True
+
+
+def test_process_env_raw_secret_never_reaches_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    from mcpscan.discovery.process_env import ProcessEnv, ProcessEnvResult
+    from mcpscan.report.json_report import render_json
+
+    entry = ProcessEnv(pid=42, proc_name="claude", env=(("ANTHROPIC_API_KEY", _PROC_KEY),))
+    _stub_process_envs(monkeypatch, ProcessEnvResult(entries=(entry,)))
+    report = scan(
+        roots=[], system="Linux", env={}, enumerate_sockets=False, inspect_process_env=True
+    )
+    out = render_json(report)
+    assert _PROC_KEY not in out
+    assert "CRED-ENV" in out  # the finding IS reported, just redacted

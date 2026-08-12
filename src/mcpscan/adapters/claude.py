@@ -19,7 +19,7 @@ from .base import (
     coerce_str_list,
     parse_mcp_servers,
 )
-from .paths import claude_config_candidates
+from .paths import claude_config_candidates, claude_credential_candidates
 
 
 class ClaudeAdapter(HostAdapter):
@@ -32,6 +32,10 @@ class ClaudeAdapter(HostAdapter):
 
     def project_config_paths(self, project_root: Path) -> list[Path]:
         return [project_root / ".mcp.json"]
+
+    def credential_artifact_paths(self, system: str, env: Mapping[str, str]) -> list[PurePath]:
+        # Claude Code's ``~/.claude/.credentials.json`` OAuth token store.
+        return claude_credential_candidates(system, env)
 
     def parse(self, path: str, raw: str) -> ParsedConfig:
         try:

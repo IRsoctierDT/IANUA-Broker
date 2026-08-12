@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import json
+import subprocess  # nosec B404
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -17,6 +20,20 @@ def test_no_command_prints_help_and_succeeds(capsys: pytest.CaptureFixture[str])
     rc = main([])
     assert rc == 0
     assert "mcpscan" in capsys.readouterr().out
+
+
+def test_python_dash_m_mcpscan_runs() -> None:
+    # Generated scheduler units fall back to `<python> -m mcpscan` when the
+    # console script is not on PATH, so the package must be runnable that way.
+    proc = subprocess.run(  # nosec B603 (fixed argv, no shell)
+        [sys.executable, "-m", "mcpscan", "--version"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert proc.returncode == 0
+    assert "mcpscan" in proc.stdout
 
 
 def test_scan_clean_returns_zero(
@@ -150,6 +167,197 @@ def test_online_emits_note(
     monkeypatch.setattr(engine_mod, "scan", lambda **_: make_report())
     main(["scan", "--online"])
     assert "api.osv.dev" in capsys.readouterr().err
+
+
+# --- token-store inspection wiring (Wave 2 Feature H) ---
+def _expired_jwt() -> str:
+    def seg(obj: dict[str, object]) -> str:
+        return base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b"=").decode("ascii")
+
+    return f"{seg({'alg': 'none'})}.{seg({'exp': 1_000_000_000})}.sig"
+
+
+def test_inspect_token_stores_discloses_and_flags_expired(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    from mcpscan.discovery.sockets import EnumerationResult
+
+    monkeypatch.setattr(engine_mod, "enumerate_listening", lambda: EnumerationResult(sockets=()))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    cred_dir = tmp_path / ".claude"
+    cred_dir.mkdir()
+    cred = cred_dir / ".credentials.json"
+    cred.write_text(
+        json.dumps({"claudeAiOauth": {"accessToken": _expired_jwt()}}), encoding="utf-8"
+    )
+    cred.chmod(0o600)
+
+    rc = main(["scan", "--inspect-token-stores", "--root", str(tmp_path)])
+    captured = capsys.readouterr()  # drains once; hold both streams
+    assert rc == 0  # TOKEN-STORE-EXPIRED is INFO -> non-blocking at default gate
+    assert "token-store://" in captured.out
+    assert "Stale token at rest" in captured.out
+    assert "no token value is stored or printed" in captured.err
+
+
+def test_default_scan_omits_token_store_note(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    make_report: Callable[..., Report],
+) -> None:
+    monkeypatch.setattr(engine_mod, "scan", lambda **_: make_report())
+    main(["scan"])
+    assert "inspect-token-stores" not in capsys.readouterr().err
+
+
+# --- process-env inspection wiring (Wave 2 Feature G) ---
+def test_inspect_process_env_discloses_and_flags(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    from mcpscan.discovery.process_env import ProcessEnv, ProcessEnvResult
+    from mcpscan.discovery.sockets import EnumerationResult
+
+    monkeypatch.setattr(engine_mod, "enumerate_listening", lambda: EnumerationResult(sockets=()))
+    key = "sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    entry = ProcessEnv(pid=42, proc_name="claude", env=(("ANTHROPIC_API_KEY", key),))
+    monkeypatch.setattr(
+        engine_mod, "iter_agent_process_envs", lambda _p: ProcessEnvResult(entries=(entry,))
+    )
+
+    rc = main(["scan", "--inspect-process-env", "--root", str(tmp_path)])
+    captured = capsys.readouterr()
+    assert rc == 1  # CRED-ENV is HIGH -> blocks at the default gate
+    assert "process://claude:42" in captured.out
+    assert "in running process env" in captured.out
+    assert key not in captured.out  # redacted, never raw
+    assert "environment blocks of your own" in captured.err
+
+
+def test_default_scan_omits_process_env_note_and_reads_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    from mcpscan.discovery.sockets import EnumerationResult
+
+    monkeypatch.setattr(engine_mod, "enumerate_listening", lambda: EnumerationResult(sockets=()))
+
+    def _boom(_p: object) -> object:
+        raise AssertionError("process env must not be enumerated without --inspect-process-env")
+
+    monkeypatch.setattr(engine_mod, "iter_agent_process_envs", _boom)
+    main(["scan", "--root", str(tmp_path)])
+    assert "inspect-process-env" not in capsys.readouterr().err
+
+
+# --- emit alert-layer wiring (Wave 2 Feature E) ---
+def test_scan_emit_ndjson_writes_redacted_line(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    make_report: Callable[..., Report],
+    make_finding: Callable[..., Finding],
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        engine_mod, "scan", lambda **_: make_report(make_finding(id="CRED-PLAINTEXT"))
+    )
+    dest = tmp_path / "alerts.ndjson"
+    rc = main(
+        ["scan", "--root", str(tmp_path), "--emit", "ndjson", "--emit-ndjson-path", str(dest)]
+    )
+    assert rc == 1  # a CRITICAL finding blocks at the default gate
+    line = json.loads(dest.read_text(encoding="utf-8").splitlines()[0])
+    assert line["kind"] == "scan"
+    assert line["gate_failed"] is True
+    assert line["threshold"] == "high"
+    assert "emitted scan alert (ndjson)" in capsys.readouterr().err
+
+
+def test_scan_emit_webhook_discloses_egress(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    make_report: Callable[..., Report],
+) -> None:
+    import mcpscan.emit as emit_mod
+
+    monkeypatch.setattr(engine_mod, "scan", lambda **_: make_report())
+    # Stub the egress primitive so the disclosure path runs without a network hit.
+    monkeypatch.setattr(emit_mod, "_post", lambda request, timeout: None)
+    rc = main(["scan", "--emit", "webhook", "--emit-webhook-url", "https://alerts.example/hook"])
+    assert rc == 0
+    assert "POSTs a REDACTED findings summary to alerts.example" in capsys.readouterr().err
+
+
+def test_scan_emit_ndjson_without_path_errors_but_does_not_crash(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    make_report: Callable[..., Report],
+) -> None:
+    monkeypatch.setattr(engine_mod, "scan", lambda **_: make_report())
+    rc = main(["scan", "--emit", "ndjson"])
+    assert rc == 0
+    assert "requires --emit-ndjson-path" in capsys.readouterr().err
+
+
+def test_default_scan_emits_to_no_sink_and_writes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    make_report: Callable[..., Report],
+    tmp_path: Path,
+) -> None:
+    import mcpscan.emit as emit_mod
+
+    monkeypatch.setattr(engine_mod, "scan", lambda **_: make_report())
+
+    def _boom(*a: object, **k: object) -> None:
+        raise AssertionError("no sink may run without an --emit selector")
+
+    monkeypatch.setattr(emit_mod, "emit_ndjson", _boom)
+    monkeypatch.setattr(emit_mod, "emit_webhook", _boom)
+    monkeypatch.setattr(emit_mod, "emit_syslog", _boom)
+    dest = tmp_path / "alerts.ndjson"
+    # A path is configured but no --emit selector -> nothing is emitted.
+    main(["scan", "--root", str(tmp_path), "--emit-ndjson-path", str(dest)])
+    assert not dest.exists()
+    assert "emitted" not in capsys.readouterr().err
+
+
+def test_diff_emit_ndjson_carries_drift_entries(tmp_path: Path) -> None:
+    cfg = tmp_path / ".mcp.json"
+    cfg.write_text(json.dumps({"mcpServers": {}, "permissions": {"allow": ["Read"]}}), "utf-8")
+    base = tmp_path / "baseline.json"
+    assert main(["baseline", "--root", str(tmp_path), "--no-inventory", "--out", str(base)]) == 0
+
+    # Introduce a dangerous grant -> a regression appears in the diff.
+    cfg.write_text(
+        json.dumps({"mcpServers": {}, "permissions": {"allow": ["Bash(*)"]}}), encoding="utf-8"
+    )
+    dest = tmp_path / "drift.ndjson"
+    rc = main(
+        [
+            "diff",
+            "--root",
+            str(tmp_path),
+            "--no-inventory",
+            "--baseline",
+            str(base),
+            "--fail-on-regression",
+            "--emit",
+            "ndjson",
+            "--emit-ndjson-path",
+            str(dest),
+        ]
+    )
+    assert rc == 1
+    line = json.loads(dest.read_text(encoding="utf-8").splitlines()[0])
+    assert line["kind"] == "diff"
+    assert line["gate_failed"] is True
+    assert any(e["direction"] == "regression" for e in line["drift"])
 
 
 # --- lan command wiring ---
