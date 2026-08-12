@@ -6,14 +6,11 @@ name: release-please
 # version in pyproject.toml and updates CHANGELOG.md. Merging that PR tags the
 # release and creates a GitHub Release; the publish job then builds and pushes to
 # PyPI via Trusted Publishing (OIDC — no stored token), gated on the `pypi`
-# environment 
-#
-# NOTE: v0.2.0 is released via the manual path (.github/workflows/release.yml);
-# the manifest is seeded at 0.3.0 so release-please starts proposing 0.1.1+.
+# environment. This is the sole publish path (there is no manual release.yml).
 #
 # Operator step: on PyPI, add a Trusted Publisher for THIS workflow filename
-# (release-please.yml) + environment `pypi`, alongside the existing release.yml
-# one. See docs/DEVSECOPS.md.
+# (release-please.yml) + environment `pypi`, scoped to the `ianua-broker`
+# project. See docs/DEVSECOPS.md.
 
 on:
   push:
@@ -28,15 +25,14 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       # Manifest mode (no explicit root component) exposes the "any release
-      # created" flag as `releases_created` and per-path outputs prefixed by the
-      # package path (".") — NOT the top-level `release_created`/`tag_name`,
-      # which stay empty here. release-please-action v4 backfilled those
-      # top-level names, so #60's v4->v5 bump silently made the old
-      # `release_created` gate skip every publish (1.4.1, 1.5.0 were tagged but
-      # never reached PyPI). Gate on `releases_created`; take the tag from the
-      # path-prefixed output.
+      # created" flag as `releases_created` — NOT the top-level `release_created`,
+      # which stays empty here. release-please-action v4 backfilled that name, so
+      # #60's v4->v5 bump silently made the old `release_created` gate skip every
+      # publish (1.4.1, 1.5.0 were tagged but never reached PyPI). Gate on
+      # `releases_created`. The tag is derived in the publish job (below) rather
+      # than read from an output, because the per-path tag output is empty here
+      # too — deriving <package-name>-v<version> is version-proof.
       releases_created: ${{ steps.rp.outputs.releases_created }}
-      tag_name: ${{ steps.rp.outputs['.--tag_name'] }}
     steps:
       - id: rp
         uses: googleapis/release-please-action@v5
@@ -56,6 +52,17 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
+
+      - name: Resolve release tag
+        id: tag
+        # Reconstruct release-please's tag (<package-name>-v<version>) from the
+        # config + the just-released pyproject version, rather than a fragile
+        # action output. include-v-in-tag is true, so the tag is e.g.
+        # ianua-broker-v1.0.0.
+        run: |
+          PKG=$(python -c "import json; print(json.load(open('release-please-config.json'))['packages']['.']['package-name'])")
+          VER=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "name=${PKG}-v${VER}" >> "$GITHUB_OUTPUT"
 
       - name: Build distributions
         run: |
@@ -77,7 +84,7 @@ jobs:
       - name: Attach SBOM + checksums to the release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          tag_name: ${{ steps.tag.outputs.name }}
           files: |
             SHA256SUMS
             sbom.cdx.json

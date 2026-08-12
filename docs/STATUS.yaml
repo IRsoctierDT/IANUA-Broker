@@ -221,8 +221,9 @@ sprints:
       - id: T-407
         title: PyPI release
         owner: REL
-        status: pending
-        evidence: [.github/workflows/release.yml, docs/RELEASING.md]
+        status: done
+        evidence: [.github/workflows/release-please.yml, docs/RELEASING.md]
         note: >-
-          Release workflow (OIDC publish) is wired and RELEASING.md is written,
-          but no published, human-approved release is confirmable from the repo.
+          ianua-broker is published to PyPI via release-please + Trusted
+          Publishing (OIDC, no stored token). The distribution was renamed from
+          ai-agentic-mcpscan; the import package and mcpscan CLI are unchanged.

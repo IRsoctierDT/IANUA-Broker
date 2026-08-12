@@ -24,7 +24,7 @@ defined in [`BACKLOG.md`](./BACKLOG.md); requirements in [`SPEC.md`](./SPEC.md).
 | 1 | Foundations & data model | ✅ done |
 | 2 | Core engine: discovery, audit, scoring | ✅ done |
 | 3 | Reporting & remediation | ✅ done |
-| 4 | Online enrichment, integration & hardening | 🔄 in progress (T-402 🟡, T-407 ⏳) |
+| 4 | Online enrichment, integration & hardening | 🔄 in progress (T-402 🟡, T-407 ✅) |
 
 ## Sprint 1 — Foundations & data model
 
@@ -82,12 +82,13 @@ defined in [`BACKLOG.md`](./BACKLOG.md); requirements in [`SPEC.md`](./SPEC.md).
 | T-404 | Cross-platform verification + coverage gate | QA | ✅ | `ci.yml` (3-OS × 3-Py matrix), `pyproject.toml` (`fail_under=90`) |
 | T-405 | Security Reviewer sign-off | SEC | 📄 | `docs/SECURITY_SIGNOFF.md` |
 | T-406 | Docs, onboarding, issue/PR templates | REL | ✅ | `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/ISSUE_TEMPLATE/*` |
-| T-407 | PyPI release | REL | ⏳ | `.github/workflows/release.yml`, `docs/RELEASING.md` (publish is human-gated) |
+| T-407 | PyPI release | REL | ✅ | `.github/workflows/release-please.yml`, `docs/RELEASING.md` — `ianua-broker` published to PyPI via Trusted Publishing |
 
 > **T-404 note:** the "coverage gate met" portion of the AC was satisfied by
 > adding `fail_under = 90` (PR #1, this work). Cross-platform "suite green" is
 > confirmed per-run by CI, not statically.
 > **T-405 note:** sign-off doc present; threat-model row verification is a human
 > attestation.
-> **T-407 note:** release workflow (OIDC) is wired but no published, approved
-> release is confirmable from the repo.
+> **T-407 note:** `ianua-broker` is published to PyPI via release-please +
+> Trusted Publishing (OIDC, no stored token). The distribution was renamed from
+> `ai-agentic-mcpscan`; the import package and `mcpscan` CLI are unchanged.

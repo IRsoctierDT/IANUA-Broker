@@ -109,9 +109,10 @@ Commits since the last tag and maintains a *release PR* that bumps the version i
 `pyproject.toml` and updates `CHANGELOG.md`. Merging that PR tags `main`, creates
 the GitHub Release, and the workflow's `publish` job builds + Trusted-Publishes
 to PyPI (gated on the `pypi` environment). Every release stays a reviewed,
-approved PR — automation without losing the human gate. The manifest is seeded at
-`0.1.0`, so release-please proposes `0.1.1+`; **v0.1.0 itself ships via the
-manual `release.yml` path.**
+approved PR — automation without losing the human gate. This is the **sole
+publish path**: the early manual `release.yml` workflow (used for v0.1.0) has
+been removed, since releases created by release-please's default token cannot
+trigger an `on: release` workflow anyway.
 
 ---
 
@@ -198,13 +199,13 @@ sequenceDiagram
     participant GH as GitHub
     participant CI as Actions
     participant PyPI as PyPI (OIDC)
-    Dev->>GH: tag vX.Y.Z + publish Release
-    GH->>CI: trigger release.yml
-    CI->>CI: verify tag == pyproject version
+    Dev->>GH: merge the release-please release PR
+    GH->>CI: trigger release-please.yml (push → main)
+    CI->>GH: tag + create GitHub Release
     CI->>CI: build sdist + wheel (reproducible)
     CI->>CI: generate SBOM (CycloneDX) + SHA-256 checksums
-    CI->>GH: attach SBOM + checksums to Release
     CI->>PyPI: publish via Trusted Publishing (no stored token)
+    CI->>GH: attach SBOM + checksums to Release
     Note over CI,PyPI: pypi environment can require manual approval
     PyPI-->>Dev: package live
 ```
@@ -309,8 +310,7 @@ predictable, not speculative): `services/`, `packages/`, `docker/`, `infra/`
 | CodeQL (default setup) | GitHub-managed | semantic security analysis (python + actions); enabled in repo settings, not a workflow file |
 | `dependency-review.yml` | PR | block PRs that add vulnerable/incompatible deps |
 | `pr-title.yml` | PR | enforce Conventional Commit PR titles |
-| `release.yml` | GitHub Release | verify tag, build, Trusted-Publish to PyPI (manual path; used for v0.1.0) |
-| `release-please.yml` | push → main | maintain release PR (version + changelog), tag, and auto-publish 0.1.1+ to PyPI |
+| `release-please.yml` | push → main | maintain release PR (version + changelog), tag, and publish to PyPI via Trusted Publishing — the sole release path |
 | `sbom.yml` | GitHub Release | attach CycloneDX SBOM + SHA-256 checksums |
 | `dependabot.yml` | schedule | pip + github-actions update PRs, weekly |
 
@@ -366,7 +366,7 @@ the UI once:
       *"GitHub Actions is not permitted to create or approve pull requests."*
 - [ ] Settings → Branches → add a **ruleset/branch protection** for `main` per Section 5.
 - [ ] Settings → Environments → create **`pypi`** with a **required reviewer** (you).
-- [ ] PyPI → add a second **Trusted Publisher** for workflow **`release-please.yml`**
-      + environment **`pypi`** (alongside the existing `release.yml` one), so the
-      automated release path can publish.
+- [ ] PyPI → add a **Trusted Publisher** on the **`ianua-broker`** project for
+      workflow **`release-please.yml`** + environment **`pypi`**, so the release
+      path can publish.
 - [ ] (Optional) enforce **signed commits** once signing keys are set up.
