@@ -12,6 +12,6 @@ from importlib.metadata import PackageNotFoundError, version
 try:
     # Single source of truth: the version declared in pyproject.toml, surfaced
     # through the installed package metadata (hatchling reads it from there).
-    __version__ = version("ai-agentic-mcpscan")
+    __version__ = version("ianua-broker")
 except PackageNotFoundError:  # pragma: no cover - source tree without an install
     __version__ = "0.0.0+unknown"
