@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.1.0...ianua-broker-v1.2.0) (2026-08-13)
+
+
+### Features
+
+* wave 3 — reachability tiers, dependency-vuln, tool integrity, telemetry, selftest, signed data-pack ([#86](https://github.com/IRsoctierDT/IANUA-Broker/issues/86)) ([ce19299](https://github.com/IRsoctierDT/IANUA-Broker/commit/ce19299403b865dde0285e48a7585d2a0df82117))
+
+
+### Documentation
+
+* fix install references to the renamed ianua-broker PyPI project ([#85](https://github.com/IRsoctierDT/IANUA-Broker/issues/85)) ([e55181d](https://github.com/IRsoctierDT/IANUA-Broker/commit/e55181db8319dc046ffa12c71a15c8ce33c39b1e))
+
 ## [1.1.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.0.0...ianua-broker-v1.1.0) (2026-08-12)
 
 
