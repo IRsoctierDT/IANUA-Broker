@@ -1,8 +1,10 @@
 # Proposal — Integrating the Agent Trust Broker (ATB) with mcpscan
 
-**Status:** **Draft for operator review** (2026-07-26) · maps options, recommends
-one · **no repo changes made** · Relates to [VISION.md](VISION.md) (governance
-tier), ADR-1/8/9 (assessment-only identity), and the ATB series (ATB-01/02/03).
+**Status:** **Accepted** — the recommendation (Option 2 + Option 3, bridge never
+code-merge) is recorded as [ADR-17](../DECISIONS.md), and the assessment check it
+calls for is specified in [ATB_POSTURE_CHECK.md](ATB_POSTURE_CHECK.md). This note
+stands as the options analysis behind that decision. Relates to
+[VISION.md](VISION.md) (governance tier) and ADR-1/8/9 (assessment-only identity).
 
 > **Governing tension (the whole point of this note):** mcpscan is
 > **assessment-only** — *discovery never converts into authority* (LAN proposal),

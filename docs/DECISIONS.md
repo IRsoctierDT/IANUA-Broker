@@ -141,3 +141,45 @@ unless noted. These are inputs the Principal Architect validates before Sprint 1
 - **Consequence:** a shared `logicalLocations` code path in `report/sarif.py`
   (opt-in, off for the file-scoped `scan` view); `lan --sarif` no longer fails
   closed; stable per-result fingerprints key on the `fullyQualifiedName`.
+
+### ADR-17 — Agent Trust Broker: bridge, never code-merge (assessment vs. authority)
+- **Context:** The Agent Trust Broker (ATB, package `ianua_atb`) is a separate
+  runtime **reference monitor** — it mints identities and makes allow/deny/
+  escalate decisions on live agent actions. mcpscan is the opposite by design:
+  **assessment-only**, read-only, offline-by-default, stateless — *discovery
+  never converts into authority* (LAN governing principle; ADR-5/8/9/13). The
+  question is how the two relate without contaminating mcpscan's guarantee.
+- **Options:** (a) **monorepo code-merge** — bring the ATB in as a second
+  package under this repo; (b) **bridge, two repos** — keep the ATB its own
+  runtime component and publishable artifact, integrate only by assessment;
+  (c) **feature bridge only** — no structural change, mcpscan gains a read-only
+  check that grades ATB deployments.
+- **Decision:** **(b) + (c), never (a)'s code-merge.** The ATB stays a separate
+  repo/package. mcpscan relates to it in exactly one on-guardrail way —
+  **assessment**: a governance-tier check (see the ATB-posture proposal) that
+  reads a target and grades whether privileged tool access is fronted by a
+  broker and whether that broker is fail-closed and least-privilege. mcpscan
+  reads and grades; it **never enforces**. Enforcement lives in the ATB's PEP,
+  in the runtime, off mcpscan's path.
+- **Dependency direction:** if anything, mcpscan may take a **read-only**
+  dependency on `ianua-atb` *types* (to recognise/parse an ATB deployment),
+  pinned by exact version. The ATB must **never** depend on mcpscan. Preferred
+  when feasible: parse a **documented on-disk shape** (see the ATB-posture
+  proposal) so the check has **zero** dependency on the ATB package.
+- **Guardrail test:** the ATB-posture check must pass mcpscan's existing
+  default-run isolation test (NFR-SEC1) — zero egress, no writes — exactly like
+  every other check. Merging the *code* is acceptable only under a future
+  single "IANUA suite" repo that still ships the packages independently
+  guaranteed and released; merging the *trust contracts* is the one thing never
+  to do.
+- **Why:** each product keeps its own guarantee, CI, and release cadence; the
+  ATB stays an independently-consumable EAODS reference implementation; the
+  integration surface is small, explicit, and on-guardrail. The honest story:
+  *mcpscan tells you that you need runtime enforcement and grades whether you
+  have it; the ATB provides that enforcement.*
+- **Consequence:** the ATB-posture check is specified as its own proposal
+  ([`docs/proposals/ATB_POSTURE_CHECK.md`](proposals/ATB_POSTURE_CHECK.md)) and
+  implemented once the ATB's on-disk contract is pinned; no ATB code enters this
+  repo; two release trains remain (independent blast radius, a feature not a bug).
+  Supersedes the open topology question in
+  [`docs/proposals/ATB_INTEGRATION.md`](proposals/ATB_INTEGRATION.md) §8.
