@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.3.0...ianua-broker-v1.4.0) (2026-08-13)
+
+
+### Features
+
+* rename the runtime self-identity to IANUA-Broker ([#91](https://github.com/IRsoctierDT/IANUA-Broker/issues/91)) ([b4c4ef3](https://github.com/IRsoctierDT/IANUA-Broker/commit/b4c4ef3c1d79001feafc171b7a0b11258b3efc58))
+
+
+### Documentation
+
+* make the signed data-pack channel usable — authoring guide + example ([#93](https://github.com/IRsoctierDT/IANUA-Broker/issues/93)) ([d7cc4a6](https://github.com/IRsoctierDT/IANUA-Broker/commit/d7cc4a6a00a4bcef4a371f2865540d40190a2296))
+* record ADR-17 (ATB bridge topology) + the ATB-posture check contract ([#90](https://github.com/IRsoctierDT/IANUA-Broker/issues/90)) ([758b71e](https://github.com/IRsoctierDT/IANUA-Broker/commit/758b71ee056633b91baded819481b28975279a3b))
+
 ## [1.3.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.2.0...ianua-broker-v1.3.0) (2026-08-13)
 
 
