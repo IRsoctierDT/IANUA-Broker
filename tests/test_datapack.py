@@ -624,3 +624,16 @@ def test_update_datapack_ed25519_end_to_end_then_scan_picks_it_up(
     # OS's location (%APPDATA% on Windows), so the pack would be missed.
     ids = _scan_ids(tmp_path, system=platform.system(), env=dict(os.environ))
     assert "CRED-PLAINTEXT" in ids
+
+
+def test_shipped_example_datapack_parses_and_extends_builtin() -> None:
+    # The example under examples/datapack/ must stay valid as the schema evolves.
+    example = (
+        Path(__file__).resolve().parent.parent / "examples" / "datapack" / "example-datapack.json"
+    )
+    pack = parse_datapack(example.read_text(encoding="utf-8"))
+    assert isinstance(pack, DataPack)
+    labels = {label for label, _ in pack.provider_patterns}
+    assert "Acme deploy token" in labels  # the sample's extra pattern
+    # It is a superset of the built-in catalog, never a replacement.
+    assert set(builtin_datapack().provider_patterns) <= set(pack.provider_patterns)
