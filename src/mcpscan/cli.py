@@ -11,7 +11,9 @@ Commands: ``scan`` (localhost posture, the default surface), ``inventory``
 (classified AI/MCP asset list — observes, never judges; see ``mcpscan.inventory``),
 ``atlas`` (the same findings mapped to security frameworks; see ``mcpscan.atlas``),
 ``trust`` (a per-agent Trust Score and the risky factor combinations; see
-``mcpscan.trust``), ``baseline`` / ``diff`` (a posture snapshot and drift against
+``mcpscan.trust``), ``graph`` (an AI attack-path graph over cross-server
+credential/tool chaining; see ``mcpscan.graph``), ``baseline`` / ``diff`` (a
+posture snapshot and drift against
 it; see ``mcpscan.drift``), ``lan`` (authorized network assessment — inert
 without a signed manifest; see ``mcpscan.lan``), ``schedule`` (emit an
 OS-native scheduler unit that re-runs scan+diff on a cadence — no daemon; see
@@ -35,6 +37,7 @@ from .domain import Report, Severity
 
 if TYPE_CHECKING:
     from .drift import Snapshot
+    from .graph import AttackGraph
 
 _THRESHOLDS = {
     "critical": (Severity.CRITICAL,),
@@ -62,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
             "inventory",
             "atlas",
             "trust",
+            "graph",
             "baseline",
             "diff",
             "lan",
@@ -72,12 +76,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "The action to run: 'scan' (localhost posture), 'inventory' (classified "
             "AI/MCP asset list), 'atlas' (findings mapped to security frameworks), "
-            "'trust' (per-agent Trust Score + risk relationships), 'baseline' (write "
-            "a posture snapshot), 'diff' (drift vs a baseline), 'lan' (authorized "
-            "network assessment), 'schedule' (emit an OS scheduler unit that runs "
-            "scan+diff on a cadence), 'selftest' (confirm the scanner's core "
-            "detections still fire against a known-bad fixture), or 'update-datapack' "
-            "(verify a signed detection data-pack and install it locally)."
+            "'trust' (per-agent Trust Score + risk relationships), 'graph' (AI "
+            "attack-path graph: cross-server credential/tool-chaining), 'baseline' "
+            "(write a posture snapshot), 'diff' (drift vs a baseline), 'lan' "
+            "(authorized network assessment), 'schedule' (emit an OS scheduler unit "
+            "that runs scan+diff on a cadence), 'selftest' (confirm the scanner's "
+            "core detections still fire against a known-bad fixture), or "
+            "'update-datapack' (verify a signed detection data-pack and install it "
+            "locally)."
         ),
     )
     parser.add_argument(
@@ -234,7 +240,10 @@ def build_parser() -> argparse.ArgumentParser:
     drift.add_argument(
         "--no-inventory",
         action="store_true",
-        help="baseline/diff: snapshot posture only, skipping the AI/MCP asset inventory.",
+        help=(
+            "baseline/diff/graph: work from posture/trust data alone, skipping the "
+            "AI/MCP asset inventory."
+        ),
     )
 
     atlas = parser.add_argument_group(
@@ -255,6 +264,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--min-grade",
         choices=("A", "B", "C", "D", "F"),
         help="trust: exit non-zero if any agent tool grades below this Trust grade.",
+    )
+
+    graph = parser.add_argument_group(
+        "graph", "AI attack-path graph (used only with the 'graph' command)."
+    )
+    graph.add_argument(
+        "--graph-format",
+        choices=("text", "dot"),
+        default="text",
+        help=(
+            "graph: stdout format — 'text' (human attack-chain report, the default) "
+            "or 'dot' (Graphviz DOT export to draw the graph). --json still writes "
+            "the machine-readable graph JSON in either mode."
+        ),
     )
 
     schedule = parser.add_argument_group(
@@ -364,6 +387,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_atlas(args)
     if args.command == "trust":
         return _run_trust(args)
+    if args.command == "graph":
+        return _run_graph(args)
     if args.command == "baseline":
         return _run_baseline(args)
     if args.command == "diff":
@@ -400,6 +425,47 @@ def _run_trust(args: argparse.Namespace) -> int:
         if any(_GRADE_RANK[p.grade] > floor for p in report.profiles):
             return 1
     return 0
+
+
+def _run_graph(args: argparse.Namespace) -> int:
+    """The AI attack-path graph command (Tier 3). Reasons about chaining.
+
+    Builds a pure graph over data the scanner already collects (trust profiles,
+    the AI/MCP inventory, shared-credential fingerprints) plus one safe inference
+    (a credential key name -> the target it unlocks), then enumerates the
+    actionable attacker chains — exposed surface -> shared credential / privileged
+    tool -> high-value target. Offline and secretless. Default renders the human
+    chain report; ``--graph-format dot`` emits a Graphviz export; ``--json``
+    writes the machine-readable graph. ``--fail-on`` gates CI on the worst chain.
+    """
+    from .graph import collect_graph, render_dot_graph, render_json_graph, render_terminal_graph
+    from .report import RenderOptions
+    from .report.writer import write_report
+
+    graph = collect_graph(roots=args.root, inventory=not args.no_inventory)
+    opts = RenderOptions(absolute_paths=args.absolute_paths, home=str(Path.home()))
+
+    if args.graph_format == "dot":
+        print(render_dot_graph(graph), end="")
+    else:
+        print(render_terminal_graph(graph, opts), end="")
+
+    if args.json is not None:
+        write_report(args.json, render_json_graph(graph, opts))
+        print(f"wrote graph JSON: {args.json}", file=sys.stderr)
+
+    return _graph_exit_code(graph, args.fail_on)
+
+
+def _graph_exit_code(graph: AttackGraph, fail_on: str) -> int:
+    """Non-zero if any enumerated attack chain is at/above the threshold.
+
+    The path-severity twin of :func:`_exit_code`: the graph's unit of risk is a
+    whole chain, not a per-finding deduction, so it gates on ``path.severity``
+    against the same ``_THRESHOLDS`` map ``scan`` uses.
+    """
+    blocking = _THRESHOLDS[fail_on]
+    return 1 if any(path.severity in blocking for path in graph.paths) else 0
 
 
 def _posture_snapshot(args: argparse.Namespace) -> Snapshot:
