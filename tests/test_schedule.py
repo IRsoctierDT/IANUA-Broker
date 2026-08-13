@@ -38,6 +38,16 @@ def _plan(cadence: Cadence = Cadence.DAILY, *, root: str = "/proj") -> ScheduleP
     )
 
 
+def test_scan_and_diff_are_not_short_circuited() -> None:
+    # scan exits non-zero on any standing finding (default --fail-on high), so the
+    # scheduled command must run diff UNCONDITIONALLY (POSIX ';' / cmd '&'), never
+    # '&&' — otherwise the drift check silently never runs on a non-clean machine.
+    posix = launchd_plist(_plan())
+    assert " ; " in posix and "&&" not in posix
+    win = windows_task_xml(_plan())
+    assert "&&" not in win  # cmd.exe joins with '&', not '&&'
+
+
 # --- launchd (Darwin) ---
 def test_launchd_plist_is_valid_and_carries_invocation() -> None:
     text = launchd_plist(_plan(Cadence.DAILY))

@@ -67,27 +67,34 @@ class SchedulePlan:
 
 # --- embedded command builders (pure) ---
 def _posix_command(plan: SchedulePlan) -> str:
-    """The POSIX shell one-liner: ``mcpscan scan … && mcpscan diff …``.
+    """The POSIX shell one-liner: ``mcpscan scan … ; mcpscan diff …``.
 
-    Runs a fresh posture scan, then diffs it against the baseline and fails the
-    run on any regression (the Wave 1 baseline/diff staleness flow) so a
-    scheduler that watches exit codes surfaces drift. Every token is
+    Runs a fresh posture scan (for the log), then **always** diffs against the
+    baseline and fails the run on any regression (the Wave 1 baseline/diff flow)
+    so a scheduler watching exit codes surfaces drift. The two are separated by
+    ``;`` — not ``&&`` — because ``scan`` exits non-zero on any standing finding
+    (``--fail-on high`` by default), which would otherwise short-circuit and skip
+    the drift check on every machine that is not already clean. With ``;`` the
+    overall exit code is the ``diff``'s, i.e. the drift signal. Every token is
     ``shlex.quote``-escaped so paths with spaces survive the shell.
     """
     prefix = " ".join(shlex.quote(tok) for tok in plan.invocation)
     roots = "".join(f" --root {shlex.quote(root)}" for root in plan.roots)
     scan = f"{prefix} scan{roots}"
     diff = f"{prefix} diff --baseline {shlex.quote(plan.baseline)}{roots} --fail-on-regression"
-    return f"{scan} && {diff}"
+    return f"{scan} ; {diff}"
 
 
 def _windows_command(plan: SchedulePlan) -> str:
-    """The ``cmd.exe`` command line running scan then diff (``&&`` chained).
+    """The ``cmd.exe`` command line running scan then diff (``&`` chained).
 
     Windows quoting differs from POSIX: tokens carrying a space or a quote are
     wrapped in double quotes with embedded quotes doubled, which is what
     ``cmd.exe`` expects (``shlex.quote`` would emit POSIX single-quotes cmd does
-    not understand).
+    not understand). The two commands are joined with ``&`` (run unconditionally)
+    rather than ``&&`` (run second only on success) for the same reason as the
+    POSIX form: ``scan`` exits non-zero on any standing finding, so ``&&`` would
+    skip the drift ``diff`` on every non-clean machine.
     """
 
     def q(tok: str) -> str:
@@ -99,7 +106,7 @@ def _windows_command(plan: SchedulePlan) -> str:
     roots = "".join(f" --root {q(root)}" for root in plan.roots)
     scan = f"{prefix} scan{roots}"
     diff = f"{prefix} diff --baseline {q(plan.baseline)}{roots} --fail-on-regression"
-    return f"{scan} && {diff}"
+    return f"{scan} & {diff}"
 
 
 # --- launchd (macOS / Darwin) ---
