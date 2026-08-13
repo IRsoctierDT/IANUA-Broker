@@ -27,6 +27,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from _xplatform import POSIX
 
 from mcpscan.discovery.probe import looks_like_mcp, probe_endpoint
 from mcpscan.discovery.sockets import enumerate_listening
@@ -95,7 +96,7 @@ def test_dogfood_discovers_servers_with_expected_findings(dogfood_project: Path)
     # fixture's chmod is a no-op and the engine reports no meaningful mode, so
     # only the plaintext secret is flagged there.
     expected_env = {"CRED-PLAINTEXT"}
-    if os.name == "posix":
+    if POSIX:
         expected_env.add("CRED-PERMS")
     assert findings[".env"] == expected_env
 

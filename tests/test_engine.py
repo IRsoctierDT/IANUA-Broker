@@ -12,6 +12,7 @@ import subprocess  # nosec B404
 from pathlib import Path
 
 import pytest
+from _xplatform import POSIX, id_endswith, posix_only
 
 import mcpscan.engine as engine_mod
 from mcpscan.adapters.claude import ClaudeAdapter
@@ -489,10 +490,7 @@ def _token_store_servers(report: object) -> list[object]:
     return [s for s in report.servers if s.id.startswith("token-store://")]  # type: ignore[attr-defined]
 
 
-@pytest.mark.skipif(
-    os.name != "posix",
-    reason="world/group-readable is a POSIX mode concept; Windows chmod is a no-op",
-)
+@posix_only
 def test_token_store_world_readable_flags_perms(tmp_path: Path) -> None:
     _write_claude_credentials(
         tmp_path, json.dumps({"claudeAiOauth": {"accessToken": "sk-ant-oat-opaque"}}), mode=0o644
@@ -507,7 +505,7 @@ def test_token_store_world_readable_flags_perms(tmp_path: Path) -> None:
     )
     stores = _token_store_servers(report)
     assert len(stores) == 1
-    assert stores[0].id.endswith(".claude/.credentials.json")
+    assert id_endswith(stores[0].id, ".claude/.credentials.json")
     assert {f.id for f in stores[0].findings} == {"TOKEN-STORE-PERMS"}
 
 
@@ -677,7 +675,7 @@ def test_telemetry_absent_dir_flags_absent(tmp_path: Path) -> None:
     assert len(servers) == 1
     # Separator-agnostic: the id carries host path separators (backslashes on
     # Windows), the surface is the macOS Claude log dir.
-    assert servers[0].id.replace("\\", "/").endswith("Library/Logs/Claude")
+    assert id_endswith(servers[0].id, "Library/Logs/Claude")
     assert {f.id for f in servers[0].findings} == {"TELEMETRY-ABSENT"}
 
 
@@ -699,7 +697,7 @@ def test_telemetry_fresh_owner_only_log_is_silent(tmp_path: Path) -> None:
     log = _claude_log_dir(tmp_path) / "mcp.log"
     log.write_text("started\n", encoding="utf-8")
     os.utime(log, (_TELE_NOW - 3600, _TELE_NOW - 3600))  # 1h old -> fresh
-    if os.name == "posix":
+    if POSIX:
         log.chmod(0o600)
     report = scan(
         roots=[],
@@ -712,10 +710,7 @@ def test_telemetry_fresh_owner_only_log_is_silent(tmp_path: Path) -> None:
     assert _telemetry_servers(report) == []
 
 
-@pytest.mark.skipif(
-    os.name != "posix",
-    reason="world/group-readable is a POSIX mode concept; Windows chmod is a no-op",
-)
+@posix_only
 def test_telemetry_world_readable_log_flags_perms(tmp_path: Path) -> None:
     log = _claude_log_dir(tmp_path) / "mcp.log"
     log.write_text("entry\n", encoding="utf-8")
@@ -738,7 +733,7 @@ def test_telemetry_stale_log_flags_stale(tmp_path: Path) -> None:
     log = _claude_log_dir(tmp_path) / "mcp.log"
     log.write_text("old\n", encoding="utf-8")
     os.utime(log, (_TELE_NOW - 90 * 86400, _TELE_NOW - 90 * 86400))  # 90 days old
-    if os.name == "posix":
+    if POSIX:
         log.chmod(0o600)  # safe perms so only staleness fires
     report = scan(
         roots=[],
