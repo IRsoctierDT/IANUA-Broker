@@ -15,7 +15,7 @@ from ..domain import Report
 from . import RenderOptions, display_path
 from .common import ordered_findings, server_grade
 
-TOOL_NAME = "ai-agentic-mcpscan"
+TOOL_NAME = "ianua-broker"
 
 
 def report_to_dict(report: Report, opts: RenderOptions | None = None) -> dict[str, object]:

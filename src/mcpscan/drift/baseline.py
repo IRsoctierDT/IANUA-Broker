@@ -23,7 +23,7 @@ class BaselineError(Exception):
 def snapshot_to_dict(snapshot: Snapshot, *, created_at: str | None = None) -> dict[str, object]:
     """A JSON-serializable baseline dict. ``created_at`` is metadata (not hashed)."""
     return {
-        "tool": "ai-agentic-mcpscan",
+        "tool": "ianua-broker",
         "schema_version": snapshot.schema_version,
         "created_at": created_at,
         "digest": snapshot_digest(snapshot),

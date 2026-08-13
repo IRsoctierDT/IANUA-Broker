@@ -57,7 +57,7 @@ def render_terminal_graph(graph: AttackGraph, opts: RenderOptions) -> str:
     critical, high = _severity_counts(graph)
     lines = [
         (
-            f"AI Agentic MCPscan — attack paths: {len(graph.paths)} path(s) "
+            f"IANUA-Broker — attack paths: {len(graph.paths)} path(s) "
             f"({critical} critical, {high} high); overall grade {graph.overall_grade}"
         )
     ]

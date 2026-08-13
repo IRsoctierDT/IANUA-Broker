@@ -123,7 +123,7 @@ drops straight into CI.
 ### Example output
 
 ```
-AI Agentic MCPscan — overall posture: F
+IANUA-Broker — overall posture: F
   dimensions: credential=D, exposure=A, pinning=A, tool_scope=C
   findings: 1 critical, 1 high, 2 medium
 
@@ -173,7 +173,7 @@ MCP transport surface (**medium**), a default-port hint alone (**low**).
 
 ```
 $ mcpscan inventory
-AI Agentic MCPscan — inventory: 3 asset(s)
+IANUA-Broker — inventory: 3 asset(s)
 
 ▶ MCP servers (1)
   MCP server (HTTP transport)  [medium confidence]
@@ -238,7 +238,7 @@ credential and a privileged/autonomous tool, to a high-value target.
 
 ```
 $ mcpscan graph
-AI Agentic MCPscan — attack paths: 1 path(s) (1 critical, 0 high); overall grade F
+IANUA-Broker — attack paths: 1 path(s) (1 critical, 0 high); overall grade F
 
 [CRITICAL] exposed 'db' (wildcard / public bind) -> shared credential GITHUB_TOKEN
            -> 'shell' (autonomous, dangerous tools) -> GitHub
@@ -267,7 +267,7 @@ first**:
 
 ```
 $ mcpscan diff --baseline base.json --fail-on-regression
-AI Agentic MCPscan — drift: 4 change(s) (2 regression(s), 0 improvement(s))
+IANUA-Broker — drift: 4 change(s) (2 regression(s), 0 improvement(s))
   + [REGRESSION ] SCOPE-DANGEROUS-ALLOW — Dangerous tool auto-allowed: 'Bash(*)'
   + [REGRESSION ] PIN-UNPINNED — Server 'db' runs an unpinned package via npx
   ~ [REGRESSION ] socket://…:8000   exposure: local → exposed

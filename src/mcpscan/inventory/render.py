@@ -32,7 +32,7 @@ def _location(asset: Asset, opts: RenderOptions) -> str:
 
 def render_terminal_inventory(inventory: Inventory, opts: RenderOptions) -> str:
     """Human-readable inventory, grouped by asset kind."""
-    lines = [f"AI Agentic MCPscan — inventory: {len(inventory.assets)} asset(s)"]
+    lines = [f"IANUA-Broker — inventory: {len(inventory.assets)} asset(s)"]
     if inventory.inspection_incomplete:
         lines.append("  (inspection incomplete: some processes could not be identified)")
 

@@ -118,7 +118,7 @@ def test_scan_payload_shape_and_envelope() -> None:
         threshold="high",
     )
     assert payload["emit_schema_version"] == EMIT_SCHEMA_VERSION
-    assert payload["tool"] == "ai-agentic-mcpscan"
+    assert payload["tool"] == "ianua-broker"
     assert payload["kind"] == "scan"
     assert payload["generated_at"] == "2026-08-11T09:00:00+00:00"
     assert payload["gate_failed"] is True

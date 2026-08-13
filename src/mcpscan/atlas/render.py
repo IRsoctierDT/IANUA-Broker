@@ -29,7 +29,7 @@ def _ref_line(ref: FrameworkRef) -> str:
 def render_terminal_atlas(report: Report, opts: RenderOptions) -> str:
     """The scan's findings, each annotated with its framework citations."""
     total = sum(len(s.findings) for s in report.servers)
-    lines = [f"AI Agentic MCPscan — atlas: {total} finding(s) mapped"]
+    lines = [f"IANUA-Broker — atlas: {total} finding(s) mapped"]
 
     if total == 0:
         lines.append("  No findings — nothing to map.")
@@ -52,7 +52,7 @@ def render_terminal_atlas(report: Report, opts: RenderOptions) -> str:
 
 def render_terminal_matrix() -> str:
     """The full static reference matrix (no scan involved)."""
-    lines = ["AI Agentic MCPscan — atlas reference matrix"]
+    lines = ["IANUA-Broker — atlas reference matrix"]
     for check_id in sorted(MAPPINGS):
         lines.append("")
         lines.append(f"▶ {check_id}")

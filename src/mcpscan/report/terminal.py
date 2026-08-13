@@ -21,7 +21,7 @@ def render_terminal(report: Report, opts: RenderOptions | None = None) -> str:
     """Render a Report as a severity-ordered plain-text summary."""
     opts = opts or RenderOptions()
     lines: list[str] = []
-    lines.append(f"AI Agentic MCPscan — overall posture: {report.overall_grade}")
+    lines.append(f"IANUA-Broker — overall posture: {report.overall_grade}")
 
     dims = ", ".join(
         f"{dim.value}={grade}"

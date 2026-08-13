@@ -1,6 +1,6 @@
 # Copyright 2026 Ivan Rozenblad
 # SPDX-License-Identifier: Apache-2.0
-"""Command-line entry point for AI Agentic MCPscan (``mcpscan``).
+"""Command-line entry point for IANUA-Broker (``mcpscan``).
 
 Wires the scan engine to the renderers. Honors the spec's trust properties:
 offline by default, secrets redacted unless ``--show-secrets``, and — advise-only
