@@ -647,3 +647,125 @@ def test_process_env_raw_secret_never_reaches_json(monkeypatch: pytest.MonkeyPat
     out = render_json(report)
     assert _PROC_KEY not in out
     assert "CRED-ENV" in out  # the finding IS reported, just redacted
+
+
+# --- agent-host telemetry / logging health (Wave 3 Feature L; opt-in) ---
+_TELE_NOW = 2_000_000_000
+
+
+def _telemetry_servers(report: object) -> list[object]:
+    return [s for s in report.servers if s.id.startswith("telemetry://")]  # type: ignore[attr-defined]
+
+
+def _claude_log_dir(tmp_path: Path) -> Path:
+    log_dir = tmp_path / "Library" / "Logs" / "Claude"
+    log_dir.mkdir(parents=True)
+    return log_dir
+
+
+def test_telemetry_absent_dir_flags_absent(tmp_path: Path) -> None:
+    # No log directory at all -> logging likely off -> TELEMETRY-ABSENT.
+    report = scan(
+        roots=[],
+        system="Darwin",
+        env={"HOME": str(tmp_path)},
+        enumerate_sockets=False,
+        inspect_telemetry=True,
+        now_epoch=_TELE_NOW,
+    )
+    servers = _telemetry_servers(report)
+    assert len(servers) == 1
+    # Separator-agnostic: the id carries host path separators (backslashes on
+    # Windows), the surface is the macOS Claude log dir.
+    assert servers[0].id.replace("\\", "/").endswith("Library/Logs/Claude")
+    assert {f.id for f in servers[0].findings} == {"TELEMETRY-ABSENT"}
+
+
+def test_telemetry_empty_dir_flags_absent(tmp_path: Path) -> None:
+    _claude_log_dir(tmp_path)  # exists but holds no log files
+    report = scan(
+        roots=[],
+        system="Darwin",
+        env={"HOME": str(tmp_path)},
+        enumerate_sockets=False,
+        inspect_telemetry=True,
+        now_epoch=_TELE_NOW,
+    )
+    servers = _telemetry_servers(report)
+    assert {f.id for f in servers[0].findings} == {"TELEMETRY-ABSENT"}
+
+
+def test_telemetry_fresh_owner_only_log_is_silent(tmp_path: Path) -> None:
+    log = _claude_log_dir(tmp_path) / "mcp.log"
+    log.write_text("started\n", encoding="utf-8")
+    os.utime(log, (_TELE_NOW - 3600, _TELE_NOW - 3600))  # 1h old -> fresh
+    if os.name == "posix":
+        log.chmod(0o600)
+    report = scan(
+        roots=[],
+        system="Darwin",
+        env={"HOME": str(tmp_path)},
+        enumerate_sockets=False,
+        inspect_telemetry=True,
+        now_epoch=_TELE_NOW,
+    )
+    assert _telemetry_servers(report) == []
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="world/group-readable is a POSIX mode concept; Windows chmod is a no-op",
+)
+def test_telemetry_world_readable_log_flags_perms(tmp_path: Path) -> None:
+    log = _claude_log_dir(tmp_path) / "mcp.log"
+    log.write_text("entry\n", encoding="utf-8")
+    os.utime(log, (_TELE_NOW - 3600, _TELE_NOW - 3600))  # fresh so only perms fire
+    log.chmod(0o644)
+    report = scan(
+        roots=[],
+        system="Darwin",
+        env={"HOME": str(tmp_path)},
+        enumerate_sockets=False,
+        inspect_telemetry=True,
+        now_epoch=_TELE_NOW,
+    )
+    servers = _telemetry_servers(report)
+    assert len(servers) == 1
+    assert {f.id for f in servers[0].findings} == {"TELEMETRY-PERMS"}
+
+
+def test_telemetry_stale_log_flags_stale(tmp_path: Path) -> None:
+    log = _claude_log_dir(tmp_path) / "mcp.log"
+    log.write_text("old\n", encoding="utf-8")
+    os.utime(log, (_TELE_NOW - 90 * 86400, _TELE_NOW - 90 * 86400))  # 90 days old
+    if os.name == "posix":
+        log.chmod(0o600)  # safe perms so only staleness fires
+    report = scan(
+        roots=[],
+        system="Darwin",
+        env={"HOME": str(tmp_path)},
+        enumerate_sockets=False,
+        inspect_telemetry=True,
+        now_epoch=_TELE_NOW,
+    )
+    servers = _telemetry_servers(report)
+    assert {f.id for f in servers[0].findings} == {"TELEMETRY-STALE"}
+
+
+def test_telemetry_not_read_without_optin(tmp_path: Path) -> None:
+    # Default scan reads nothing new: no telemetry server, even with logs absent.
+    report = scan(roots=[], system="Darwin", env={"HOME": str(tmp_path)}, enumerate_sockets=False)
+    assert _telemetry_servers(report) == []
+
+
+def test_telemetry_absent_finding_does_not_worsen_overall_grade(tmp_path: Path) -> None:
+    # A lone LOW telemetry finding grades A and must not drag the overall grade.
+    report = scan(
+        roots=[],
+        system="Darwin",
+        env={"HOME": str(tmp_path)},
+        enumerate_sockets=False,
+        inspect_telemetry=True,
+        now_epoch=_TELE_NOW,
+    )
+    assert report.overall_grade == "A"

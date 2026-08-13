@@ -14,33 +14,20 @@ the blast radius of one credential living in several places.
 from __future__ import annotations
 
 import math
-import re
 from collections.abc import Sequence
 
 from ..adapters.base import ServerDecl
+from ..datapack import SecretCatalog, builtin_secret_catalog
 from ..discovery.process_env import ProcessEnv
 from ..domain import Dimension, Finding, Location, SecretFingerprint, Server, Severity
 from ..redaction import fingerprint_secret
 from . import EnvFile
 
-# Known high-confidence provider patterns.
-_PROVIDER_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("Anthropic API key", re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}")),
-    ("OpenAI API key", re.compile(r"sk-[A-Za-z0-9]{20,}")),
-    ("GitHub token", re.compile(r"gh[pousr]_[A-Za-z0-9]{36,}")),
-    ("GitHub fine-grained PAT", re.compile(r"github_pat_[A-Za-z0-9_]{50,}")),
-    ("AWS access key id", re.compile(r"AKIA[0-9A-Z]{16}")),
-    ("Google API key", re.compile(r"AIza[0-9A-Za-z_-]{35}")),
-    ("Slack token", re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}")),
-    ("Private key", re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----")),
-)
-
-_SECRET_NAME = re.compile(
-    r"(API[_-]?KEY|SECRET|TOKEN|PASSWORD|PASSWD|ACCESS[_-]?KEY|PRIVATE[_-]?KEY)",
-    re.IGNORECASE,
-)
-_ENTROPY_THRESHOLD = 3.5
-_MIN_ENTROPY_LEN = 20
+# The provider-pattern / secret-name / entropy catalog now lives in
+# ``mcpscan.datapack`` (the built-in pack is byte-identical to the constants that
+# used to sit here), so the opt-in signed data-pack channel can refresh detection
+# between releases. Each check takes the compiled catalog as a keyword argument
+# defaulting to the built-in, keeping every existing call site behaviour-identical.
 
 
 def shannon_entropy(value: str) -> float:
@@ -52,22 +39,23 @@ def shannon_entropy(value: str) -> float:
     return -sum((c / n) * math.log2(c / n) for c in counts.values())
 
 
-def _provider_match(value: str) -> str | None:
-    for label, pattern in _PROVIDER_PATTERNS:
+def _provider_match(value: str, catalog: SecretCatalog) -> str | None:
+    for label, pattern in catalog.provider_patterns:
         if pattern.search(value):
             return label
     return None
 
 
-def _looks_secret(key: str, value: str) -> str | None:
+def _looks_secret(key: str, value: str, catalog: SecretCatalog | None = None) -> str | None:
     """Return a human label if (key, value) looks like a plaintext secret."""
-    label = _provider_match(value)
+    cat = catalog if catalog is not None else builtin_secret_catalog()
+    label = _provider_match(value, cat)
     if label is not None:
         return label
     if (
-        _SECRET_NAME.search(key)
-        and len(value) >= _MIN_ENTROPY_LEN
-        and shannon_entropy(value) >= _ENTROPY_THRESHOLD
+        cat.secret_name.search(key)
+        and len(value) >= cat.min_entropy_len
+        and shannon_entropy(value) >= cat.entropy_threshold
     ):
         return "High-entropy secret"
     return None
@@ -90,21 +78,25 @@ def _finding(label: str, location: Location, raw_value: str) -> Finding:
     )
 
 
-def check_server_env(server: ServerDecl, config_path: str) -> list[Finding]:
+def check_server_env(
+    server: ServerDecl, config_path: str, *, catalog: SecretCatalog | None = None
+) -> list[Finding]:
     """Detect plaintext secrets in a declared server's ``env`` block."""
     findings: list[Finding] = []
     for key, value in server.env:
-        label = _looks_secret(key, value)
+        label = _looks_secret(key, value, catalog)
         if label is not None:
             findings.append(_finding(label, Location(path=config_path), value))
     return findings
 
 
-def check_env_file_secrets(env_file: EnvFile) -> list[Finding]:
+def check_env_file_secrets(
+    env_file: EnvFile, *, catalog: SecretCatalog | None = None
+) -> list[Finding]:
     """Detect plaintext secrets in a parsed ``.env`` file."""
     findings: list[Finding] = []
     for lineno, key, value in env_file.entries:
-        label = _looks_secret(key, value)
+        label = _looks_secret(key, value, catalog)
         if label is not None:
             findings.append(_finding(label, Location(path=env_file.path, line=lineno), value))
     return findings
@@ -131,7 +123,9 @@ def _process_env_finding(label: str, proc_name: str, pid: int, raw_value: str) -
     )
 
 
-def check_process_env_secrets(entries: Sequence[ProcessEnv]) -> list[Finding]:
+def check_process_env_secrets(
+    entries: Sequence[ProcessEnv], *, catalog: SecretCatalog | None = None
+) -> list[Finding]:
     """Detect plaintext secrets in the environments of running agent processes.
 
     Pure over its inputs (the psutil edge lives in ``discovery.process_env``):
@@ -143,16 +137,18 @@ def check_process_env_secrets(entries: Sequence[ProcessEnv]) -> list[Finding]:
     findings: list[Finding] = []
     for entry in entries:
         for key, value in entry.env:
-            label = _looks_secret(key, value)
+            label = _looks_secret(key, value, catalog)
             if label is not None:
                 findings.append(_process_env_finding(label, entry.proc_name, entry.pid, value))
     return findings
 
 
-def check_secret_at_rest(env_file: EnvFile) -> list[Finding]:
+def check_secret_at_rest(
+    env_file: EnvFile, *, catalog: SecretCatalog | None = None
+) -> list[Finding]:
     """Flag a secret-bearing ``.env`` that is world/group-readable or tracked."""
     findings: list[Finding] = []
-    has_secret = any(_looks_secret(k, v) is not None for _, k, v in env_file.entries)
+    has_secret = any(_looks_secret(k, v, catalog) is not None for _, k, v in env_file.entries)
     if not has_secret:
         return findings
 

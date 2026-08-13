@@ -87,6 +87,62 @@ def claude_credential_candidates(
     return [home / ".claude" / ".credentials.json"]
 
 
+def claude_telemetry_candidates(
+    system: str,
+    env: Mapping[str, str],
+) -> list[PurePath]:
+    """Return candidate Claude agent-host log locations for the given OS.
+
+    Claude Desktop writes its MCP/agent logs to a well-documented per-OS
+    directory (the MCP debugging guidance points operators at exactly these):
+    ``~/Library/Logs/Claude`` on macOS and ``%APPDATA%\\Claude\\logs`` on
+    Windows. No official Claude Desktop Linux location is documented, so Linux
+    (and any host with no confidently-known log path) returns ``[]`` rather than
+    guess — the same conservative stance as the credential-artifact registry.
+
+    The path is a *candidate* directory: the caller checks whether it exists and
+    holds any log file (an absent/empty directory means logging is likely off).
+    Only log *metadata* — presence, file mode, mtime — is ever read; the log
+    contents are never ingested, so no sensitive log data reaches a finding.
+    """
+    home = _home(system, env)
+    if system == "Darwin" and home is not None:
+        return [home / "Library" / "Logs" / "Claude"]
+    if system == "Windows":
+        appdata = env.get("APPDATA")
+        if appdata:
+            return [PureWindowsPath(appdata) / "Claude" / "logs"]
+    return []
+
+
+def datapack_store_path(
+    system: str,
+    env: Mapping[str, str],
+) -> PurePath | None:
+    """Return the OS-appropriate local data-pack store path (Wave 3 Feature D).
+
+    The store holds the last pack that ``mcpscan update-datapack`` verified and
+    installed. On POSIX it is ``$XDG_CONFIG_HOME/mcpscan/datapack.json`` (falling
+    back to ``~/.config/mcpscan/datapack.json``); on Windows it is
+    ``%APPDATA%\\mcpscan\\datapack.json``. ``None`` when no home / ``APPDATA`` can
+    be resolved. As elsewhere in this module, the path is computed, not checked —
+    the caller decides whether it exists. Pure (no I/O).
+    """
+    rel = ("mcpscan", "datapack.json")
+    if system == "Windows":
+        appdata = env.get("APPDATA")
+        if appdata:
+            return PureWindowsPath(appdata).joinpath(*rel)
+        return None
+    xdg = env.get("XDG_CONFIG_HOME")
+    if xdg:
+        return PurePosixPath(xdg).joinpath(*rel)
+    home = _home(system, env)
+    if home is None:
+        return None
+    return home.joinpath(".config", *rel)
+
+
 def cursor_config_candidates(
     system: str,
     env: Mapping[str, str],

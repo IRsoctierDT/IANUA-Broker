@@ -8,11 +8,11 @@
 a stable CLI surface, JSON schema, and check ids covered by semver. CLI
 command: `mcpscan`. License: Apache-2.0.
 
-## What it does (MVP)
+## What it does
 
 - **Discovers** MCP servers on the local machine via socket/process enumeration
-  (directly catching `0.0.0.0` / non-loopback exposure) plus a loopback probe of
-  `/mcp` and `/sse`.
+  (bind addresses classified by reachability — loopback / private-LAN /
+  public-routable / wildcard) plus a loopback probe of `/mcp` and `/sse`.
 - **Statically audits** Claude-ecosystem (`.claude/settings.json`, `.mcp.json`,
   `claude_desktop_config.json`), **Cursor** (`~/.cursor/mcp.json`,
   `.cursor/mcp.json`), **Windsurf** (`~/.codeium/windsurf/mcp_config.json`),
@@ -21,22 +21,38 @@ command: `mcpscan`. License: Apache-2.0.
   `~/.config/zed/settings.json`), and **Continue** (`~/.continue/config.yaml`,
   `.continue/config.yaml` — needs the `[yaml]` extra) agent configs — plus
   `.env` — for plaintext secrets, auto-approval flags, over-broad tool scopes,
-  and unpinned versions.
+  unpinned versions, reused credentials, and tool-poisoning signals.
 - **Scores** each server **A–F** across four dimensions (exposure, credential
   hygiene, tool-scope breadth, version pinning).
 - **Reports** a prioritized, **redacted**, advise-only remediation in four
   forms: terminal, a self-contained HTML file, stable JSON, and SARIF 2.1.0 for
-  GitHub code scanning.
+  GitHub code scanning — and can **alert** (`--emit` to webhook/syslog/NDJSON).
 - **Inventories** (`mcpscan inventory`) the machine's AI infrastructure as a
   classified, typed asset list — agent hosts, MCP servers, model servers,
   inference endpoints, LLM gateways, vector DBs — with per-asset evidence and
   confidence.
+- **Validates continuously** — a per-agent **Trust Score** (`mcpscan trust`),
+  framework mapping (`mcpscan atlas`), a signed **baseline** + **drift** gate
+  (`mcpscan baseline` / `diff`), a named-human **risk-acceptance ledger**,
+  **validation-age** staleness warnings, and OS-native **scheduling**
+  (`mcpscan schedule`) turn a one-shot scan into an ongoing posture program.
+- **Goes deeper, opt-in** — `--online` OSV dependency-vuln lookups,
+  `--inspect-token-stores` (OAuth/session tokens at rest),
+  `--inspect-process-env` (secrets in running agent processes),
+  `--inspect-telemetry` (agent-host logging health), `mcpscan selftest`
+  (catches a degraded scanner), and a signed detection **data-pack** refresh
+  channel (`mcpscan update-datapack`).
 
 ## Trust properties (by design)
 
-- **Localhost only** — never touches the LAN or third-party systems.
-- **Offline + zero telemetry by default** — `--online` opt-in adds OSV/PyPI
-  enrichment and says so.
+- **Localhost only** — `scan` never touches the LAN or third-party systems
+  (`mcpscan lan` is a separate, signed-manifest-gated command).
+- **Offline + zero egress by default** — the network is contacted only under an
+  explicit opt-in: `--online` (OSV dependency lookups) or `mcpscan
+  update-datapack`; each one says so.
+- **Reads nothing extra by default** — deeper surfaces (token stores, running
+  process environments, host logging) are read only behind their `--inspect-*`
+  flag, which discloses what it touches.
 - **Secrets never leak** — redacted everywhere; `--show-secrets` reveals only a
   masked/partial value, with a warning.
 - **Advise-only by default** — never writes to your config files unless you pass
@@ -50,7 +66,7 @@ command: `mcpscan`. License: Apache-2.0.
 ```bash
 pipx install ianua-broker            # provides the `mcpscan` command
 pipx install "ianua-broker[yaml]"    # + audit Continue's config.yaml
-pipx install "ianua-broker[crypto]"  # + verify ed25519 LAN manifests
+pipx install "ianua-broker[crypto]"  # + verify ed25519 LAN manifests / data-packs
 ```
 
 The base install is stdlib-only (plus `psutil`). The optional `[yaml]` and
@@ -75,19 +91,29 @@ mcpscan scan --json report.json       # also write a stable JSON report (0600)
 mcpscan scan --html report.html       # also write a self-contained HTML report
 mcpscan scan --sarif results.sarif    # also write SARIF 2.1.0 for code scanning
 mcpscan scan --fail-on critical       # CI: exit non-zero only on Critical
-mcpscan scan --online                 # opt-in OSV enrichment (discloses egress)
+mcpscan scan --online                 # opt-in OSV dep-vuln lookups (discloses egress)
+mcpscan scan --emit webhook --emit-url … # emit findings/gate as an alert (opt-in)
+mcpscan scan --inspect-token-stores   # opt-in: OAuth/session tokens at rest
+mcpscan scan --inspect-process-env    # opt-in: secrets in running agent processes
+mcpscan scan --inspect-telemetry      # opt-in: agent-host logging health
 mcpscan scan --show-secrets           # reveal masked (first-2/last-2) values
-mcpscan scan --absolute-paths         # show full paths instead of ~
 mcpscan scan --fix                    # apply safe tool-scope fixes (backs up first)
 mcpscan inventory                     # classified AI/MCP asset list (see below)
 mcpscan atlas                         # findings mapped to security frameworks
-mcpscan atlas --matrix                # the full check-id -> framework matrix
 mcpscan trust                         # per-agent Trust Score + risk relationships
 mcpscan trust --min-grade B           # CI: fail if any tool grades below B
 mcpscan baseline --out base.json      # snapshot current posture (digest-signed)
-mcpscan diff --baseline base.json     # drift vs the baseline (regressions first)
+mcpscan diff --baseline base.json --fail-on-regression   # drift gate for CI
+mcpscan diff --baseline base.json --max-age-days 30      # + warn if the baseline is stale
+mcpscan schedule --cadence daily      # generate an OS-native scheduled scan+diff
+mcpscan selftest                      # verify the scanner's own detections still fire
+mcpscan update-datapack --pack p.json --signature p.sig --allowed-signers s  # signed catalog refresh
 mcpscan lan  --manifest auth.toml ... # authorized network assessment (see below)
 ```
+
+`.mcpscan-accept.json` in a scanned root lets a **named human** risk-accept a
+specific tool-scope finding until a stated expiry — the finding still lowers the
+grade but stops failing the gate until it lapses (then it re-arms, loudly).
 
 Exit code is non-zero when a finding meets `--fail-on` (default: `high`), so it
 drops straight into CI.
@@ -172,10 +198,11 @@ concern, not an AI asset.
 
 Where `scan` grades hygiene, `trust` asks *what each agent tool is trusted to do
 and access* — and, crucially, which **combinations** make it a lateral-movement
-risk. Every MCP server gets a **Trust Score** (0–100) across four factors —
-secret access, tool privilege, autonomy (auto-approval), code provenance — and
-the dangerous factor *combinations* are surfaced as **risk relationships** that
-no single hygiene check sees:
+risk. Every MCP server gets a **Trust Score** (0–100) across five factors —
+secret access, tool privilege, autonomy (auto-approval), code provenance, and
+network reach (a bind hint beyond loopback) — and the dangerous factor
+*combinations* are surfaced as **risk relationships** that no single hygiene
+check sees:
 
 ```
 $ mcpscan trust
@@ -191,8 +218,11 @@ $ mcpscan trust
 
 The relationships are the differentiator: `PRIVILEGED-SECRET-HOLDER` (secrets +
 dangerous tools), `AUTONOMOUS-PRIVILEGED` (auto-approves dangerous tools),
-`AUTONOMOUS-SECRET-HOLDER`, and `UNVETTED-PRIVILEGED` (unpinned code + dangerous
-tools). Scoring reuses the exact predicates `scan` trusts, so the two never
+`AUTONOMOUS-SECRET-HOLDER`, `UNVETTED-PRIVILEGED` (unpinned code + dangerous
+tools), `AUTONOMOUS-EXFIL-PATH` (autonomy × privilege × secrets — an unattended
+exfiltration path), `EXPOSED-PRIVILEGED` (network-reachable × dangerous tools),
+and `SHARED-CREDENTIAL` (one secret spanning several tools — a cross-tool blast
+radius). Scoring reuses the exact predicates `scan` trusts, so the two never
 diverge. `--min-grade` makes it a CI gate; `--json` emits the full analysis; a
 profile is **secretless** (a credential count, never a value). Read-only and
 offline.
@@ -329,31 +359,32 @@ model: [`docs/proposals/LAN_SCANNING.md`](docs/proposals/LAN_SCANNING.md).
 
 ## Status & roadmap
 
-**v1.0 is released on [PyPI](https://pypi.org/project/ianua-broker/)** —
-stable and production-ready, behind a green CI gate (ruff, mypy --strict, bandit,
-pytest with a 90% branch-coverage floor, on macOS/Linux/Windows × Python
-3.11–3.13), with SBOM + checksums on every release. The 1.0 bar it shipped
-against: SARIF 2.1.0 output + a GitHub code-scanning workflow, opt-in `--fix`
-for over-broad tool scopes, **seven** host adapters (Claude, Cursor, Windsurf,
-Cline, VS Code, Zed, Continue), `mcpscan lan` — authorized, exposure-only
-network assessment behind a signed manifest — and a
+**Released on [PyPI](https://pypi.org/project/ianua-broker/)** as `ianua-broker`
+(the `mcpscan` command) — stable and production-ready, behind a green CI gate
+(ruff, mypy --strict, bandit, pytest with a 90% branch-coverage floor, on
+macOS/Linux/Windows × Python 3.11–3.13), with SBOM + checksums on every release.
+It ships **seven** host adapters (Claude, Cursor, Windsurf, Cline, VS Code, Zed,
+Continue), SARIF 2.1.0 + a GitHub code-scanning workflow, opt-in `--fix`,
+`mcpscan lan` (authorized, signed-manifest network assessment), and a
 [dogfood harness](tools/dogfood/README.md) that gates every check against a
 clean+messy corpus across all hosts (0 false positives / 0 false negatives, run
 in CI).
 
-From 1.0, the CLI surface, JSON report schema, and check ids are covered by
-semver: breaking changes to any of them mean a major version bump.
+The CLI surface, JSON report schema, and check ids are covered by semver:
+breaking changes to any of them mean a major version bump.
 
-Roadmap for 1.x, tracking the platform tiers in
-[docs/proposals/VISION.md](docs/proposals/VISION.md): **`inventory` (Tier 1),
-`atlas` (Tier 2), `trust` (Tier 4), and `baseline`/`diff` drift detection
-(Tier 5) have landed** — a classified AI/MCP asset list, findings mapped to
-MITRE ATT&CK/ATLAS, OWASP LLM Top 10, NIST AI RMF, and CIS v8, a per-agent Trust
-Score with risk relationships, and a CI gate against posture backsliding —
-alongside **SARIF logical-location output for non-file (`lan`) findings**
-(ADR-16). Next: `graph` (Tier 3 — an AI attack-path graph built on the trust
-model) and real-lab dogfooding (stakeholder configs + a pfSense/Suricata network
-lab for the socket and `lan` surfaces).
+Since 1.0, three hardening waves have landed on top of the platform tiers in
+[docs/proposals/VISION.md](docs/proposals/VISION.md) (`inventory`, `atlas`,
+`trust`, and `baseline`/`diff` drift): **continuous-validation** foundations
+(validation-age staleness, a named-human risk-acceptance ledger, drift-cause
+tags, reused-credential detection); **detection reach & quiet-read surfaces**
+(the `--emit` alert layer, `mcpscan schedule`, token-store and running-process
+credential inspection, and an autonomous-exfiltration trust composite); and
+**hardening & extensibility** (reachability tiering, `--online` dependency-vuln
+lookups, tool-integrity heuristics, agent-host telemetry checks, `mcpscan
+selftest`, and a signed detection **data-pack** refresh channel). Next: `graph`
+(Tier 3 — an AI attack-path graph built on the trust model) and real-lab
+dogfooding (stakeholder configs + a pfSense/Suricata network lab).
 
 ## License
 

@@ -628,3 +628,100 @@ def test_json_render_without_staleness_defaults_to_unknown() -> None:
     assert payload["baseline_created_at"] is None
     assert payload["baseline_age_days"] is None
     assert payload["stale"] is False
+
+
+# --- rug-pull: same server name, silently changed code/tools (Wave 3 Feature T) ---
+def _declared(sid: str, identity: str) -> Server:
+    """A config-declared server carrying a launch-identity fingerprint."""
+    return Server(**{**_server(sid).__dict__, "tool_identity": identity})
+
+
+def test_declared_server_fact_carries_tool_identity() -> None:
+    snap = build_snapshot(_report(_declared("cfg#weather", "id-a")))
+    fact = next(f for f in snap.facts if f.kind.value == "server")
+    assert fact.detail_map()["tool_identity"] == "id-a"
+
+
+def test_socket_server_fact_has_no_tool_identity_key() -> None:
+    # Sockets/process/env servers have no declared launch identity.
+    snap = build_snapshot(_report(_server("socket://0.0.0.0:8000", bind="0.0.0.0", port=8000)))
+    fact = next(f for f in snap.facts if f.kind.value == "server")
+    assert "tool_identity" not in fact.detail_map()
+
+
+def test_rug_pull_same_name_changed_identity_is_regression() -> None:
+    base = build_snapshot(_report(_declared("cfg#weather", "id-old")))
+    curr = build_snapshot(_report(_declared("cfg#weather", "id-new")))
+    report = diff_snapshots(base, curr)
+    changed = next(e for e in report.entries if e.change is ChangeType.CHANGED)
+    assert changed.direction is Direction.REGRESSION
+    assert changed.cause is DriftCause.TOOL_IDENTITY_DRIFT
+    assert report.regressions
+    # the field-level before→after fingerprints ride along on the entry
+    assert dict(changed.detail_before)["tool_identity"] == "id-old"
+    assert dict(changed.detail_after)["tool_identity"] == "id-new"
+
+
+def test_identical_tool_identity_has_no_drift() -> None:
+    same = _declared("cfg#weather", "id-same")
+    report = diff_snapshots(build_snapshot(_report(same)), build_snapshot(_report(same)))
+    assert not report.has_drift
+
+
+def test_rug_pull_cause_tag_renders() -> None:
+    base = build_snapshot(_report(_declared("cfg#weather", "id-old")))
+    curr = build_snapshot(_report(_declared("cfg#weather", "id-new")))
+    out = render_terminal_drift(diff_snapshots(base, curr))
+    assert "[tool-identity-drift]" in out
+
+
+def test_rug_pull_outranks_simultaneous_exposure_improvement() -> None:
+    # The server stopped being exposed in the same scan its code changed. The
+    # apparent improvement must never mask the rug-pull — it stays a regression.
+    exposed = Server(
+        **{**_server("s", bind="0.0.0.0", port=8000).__dict__, "tool_identity": "id-old"}
+    )
+    local_new = Server(
+        **{**_server("s", bind="127.0.0.1", port=8000).__dict__, "tool_identity": "id-new"}
+    )
+    report = diff_snapshots(build_snapshot(_report(exposed)), build_snapshot(_report(local_new)))
+    changed = next(e for e in report.entries if e.change is ChangeType.CHANGED)
+    assert changed.direction is Direction.REGRESSION
+    assert changed.cause is DriftCause.TOOL_IDENTITY_DRIFT
+
+
+def _strip_tool_identity(snapshot: Snapshot) -> Snapshot:
+    """Rebuild a snapshot as a pre-Wave-3 one: no tool_identity detail key."""
+    facts = tuple(
+        PostureFact(
+            kind=f.kind,
+            key=f.key,
+            summary=f.summary,
+            detail=tuple((k, v) for k, v in f.detail if k != "tool_identity"),
+        )
+        for f in snapshot.facts
+    )
+    return Snapshot(schema_version=snapshot.schema_version, facts=facts)
+
+
+def test_pre_wave3_baseline_produces_no_phantom_rug_pull() -> None:
+    # A pre-Wave-3 baseline never recorded tool_identity; the current scan does.
+    # Absent must read as "unchanged", so an unchanged posture diffs clean.
+    current = build_snapshot(_report(_declared("cfg#weather", "id-now")))
+    old_text = render_baseline(_strip_tool_identity(current), created_at="2026-07-01T00:00:00Z")
+    old = load_baseline(old_text)  # digest still verifies: it was computed key-less
+    report = diff_snapshots(old, current)
+    assert not report.has_drift
+
+
+def test_pre_wave3_baseline_still_detects_a_real_change() -> None:
+    # Dropping tool_identity must not mask a genuine, unrelated drift.
+    base_server = _declared("cfg#weather", "id-old")
+    old = load_baseline(render_baseline(_strip_tool_identity(build_snapshot(_report(base_server)))))
+    exposed = Server(
+        **{**_server("cfg#weather", bind="0.0.0.0", port=8000).__dict__, "tool_identity": "id-old"}
+    )
+    report = diff_snapshots(old, build_snapshot(_report(exposed)))
+    changed = next(e for e in report.entries if e.change is ChangeType.CHANGED)
+    assert changed.direction is Direction.REGRESSION
+    assert changed.cause is DriftCause.EXPOSURE_DRIFT

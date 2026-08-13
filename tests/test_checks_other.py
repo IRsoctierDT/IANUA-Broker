@@ -29,16 +29,32 @@ def test_wildcard_bind_is_critical() -> None:
     assert classify_exposure("0.0.0.0") is Severity.CRITICAL
     findings = check_socket_exposure(ListeningSocket("0.0.0.0", 8000, 1, "node"))
     assert findings[0].dimension is Dimension.EXPOSURE
+    assert findings[0].severity is Severity.CRITICAL
+    # The finding names the wildcard tier and reads as reachable from any network.
+    assert "wildcard bind" in findings[0].title
+    assert "reachable from any network" in findings[0].title
+
+
+def test_private_lan_bind_is_high_and_names_the_tier() -> None:
+    # A private-LAN bind is reachable on the local network — HIGH, not CRITICAL.
+    assert classify_exposure("192.168.1.10") is Severity.HIGH
+    findings = check_socket_exposure(ListeningSocket("192.168.1.10", 3000, 1, "node"))
+    assert findings[0].severity is Severity.HIGH
+    assert "private-LAN bind" in findings[0].title
+    assert "reachable on the local network" in findings[0].title
 
 
 def test_routable_bind_is_critical() -> None:
-    # A concrete, parseable, non-loopback address is reachable beyond the host.
+    # A concrete, parseable, non-loopback global address is reachable from any network.
     assert classify_exposure("8.8.8.8") is Severity.CRITICAL
+    findings = check_socket_exposure(ListeningSocket("8.8.8.8", 3000, 1, "node"))
+    assert findings[0].severity is Severity.CRITICAL
+    assert "public-routable bind" in findings[0].title
 
 
-def test_unparseable_bind_is_high() -> None:
-    # An address we cannot parse is flagged conservatively rather than ignored.
-    assert classify_exposure("not-an-ip") is Severity.HIGH
+def test_unparseable_bind_is_critical() -> None:
+    # An address we cannot parse is flagged conservatively as public-routable.
+    assert classify_exposure("not-an-ip") is Severity.CRITICAL
 
 
 # --- tool scope ---

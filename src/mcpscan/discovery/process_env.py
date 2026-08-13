@@ -29,39 +29,18 @@ check, which fingerprints them at detection.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
-# Substrings that mark a process as an agent/MCP host or an MCP server. Matched
-# case-insensitively against the process name joined with its cmdline. Kept
-# deliberately small and specific: an MCP server launched via node/npx/uvx/python
-# carries its package name (almost always containing "mcp"/"modelcontextprotocol")
-# on the cmdline, and an agent host app carries its product name — so requiring an
-# agent marker (rather than just a runtime like "python") is what stops this from
-# scanning every process on the box.
-_AGENT_MARKERS: tuple[str, ...] = (
-    "mcp",
-    "modelcontextprotocol",
-    "model-context-protocol",
-    "claude",
-    "cursor",
-    "windsurf",
-    "cline",
-    "continue",
-    "zed",
-)
+from ..datapack import AgentCatalog, builtin_agent_catalog
 
-# Match each marker only at word boundaries, so a short marker never fires on a
-# coincidental substring of an unrelated word — "zed" must not match
-# "authoriZED"/"synchroniZED", "cursor" must not match "preCURSOR", "cline" must
-# not match "deCLINE". `\b` sits between a word char and a non-word char, and the
-# separators in real package names (`-`, `/`, `.`, space, `@`) are all non-word,
-# so "mcp-server", "@modelcontextprotocol/x", and "claude.app" still match.
-_AGENT_MARKER_RE = re.compile(
-    r"\b(?:" + "|".join(re.escape(m) for m in _AGENT_MARKERS) + r")\b",
-    re.IGNORECASE,
-)
+# The agent/MCP process markers now live in ``mcpscan.datapack`` (the built-in
+# pack carries the same set that used to sit inline here) so the opt-in signed
+# data-pack channel can refresh them between releases. ``looks_like_agent`` takes
+# the compiled catalog as a keyword argument defaulting to the built-in, keeping
+# every existing call site behaviour-identical. Markers still match only at word
+# boundaries and case-insensitively — the compilation lives in
+# ``datapack.compile_agent_catalog``.
 
 
 @dataclass(frozen=True)
@@ -70,12 +49,14 @@ class ProcessEnv:
 
     ``env`` holds the raw pairs only long enough to reach the pure secret check,
     which fingerprints any secret at detection; nothing downstream retains a raw
-    value.
+    value. ``cmdline`` is the joined launch command (no secrets — argv only), used
+    by the opt-in version-coordinate extraction (Wave 3 Feature V).
     """
 
     pid: int
     proc_name: str
     env: tuple[tuple[str, str], ...]
+    cmdline: str = ""
 
 
 @dataclass(frozen=True)
@@ -86,15 +67,18 @@ class ProcessEnvResult:
     inspection_incomplete: bool = False
 
 
-def looks_like_agent(text: str) -> bool:
+def looks_like_agent(text: str, *, catalog: AgentCatalog | None = None) -> bool:
     """True if ``text`` (a process name + cmdline) names an agent/MCP process.
 
     Pure and case-insensitive. This is the scope guardrail: it must be *positive*
     identification, so a process with no agent marker is skipped and its
     environment is never read. Markers match only at word boundaries, so a short
     marker cannot fire on a coincidental substring (e.g. "zed" in "authorized").
+    ``catalog`` defaults to the built-in agent markers; the engine threads the
+    active data-pack's catalog through when a refreshed pack is installed.
     """
-    return _AGENT_MARKER_RE.search(text) is not None
+    cat = catalog if catalog is not None else builtin_agent_catalog()
+    return cat.marker_re.search(text) is not None
 
 
 def iter_agent_process_envs(is_agent: Callable[[str], bool]) -> ProcessEnvResult:
@@ -122,7 +106,8 @@ def iter_agent_process_envs(is_agent: Callable[[str], bool]) -> ProcessEnvResult
     for proc in procs:
         try:
             name = proc.name()
-            haystack = " ".join([name, *proc.cmdline()])
+            cmd = proc.cmdline()
+            haystack = " ".join([name, *cmd])
             if not is_agent(haystack):
                 continue
             # Only reached for agent/MCP processes: the env is read here, never
@@ -132,6 +117,13 @@ def iter_agent_process_envs(is_agent: Callable[[str], bool]) -> ProcessEnvResult
         except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
             incomplete = True
             continue
-        entries.append(ProcessEnv(pid=pid, proc_name=name, env=tuple(environ.items())))
+        entries.append(
+            ProcessEnv(
+                pid=pid,
+                proc_name=name,
+                env=tuple(environ.items()),
+                cmdline=" ".join(cmd),
+            )
+        )
 
     return ProcessEnvResult(entries=tuple(entries), inspection_incomplete=incomplete)

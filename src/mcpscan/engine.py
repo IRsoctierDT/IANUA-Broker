@@ -23,6 +23,7 @@ from .adapters.claude import ClaudeAdapter
 from .adapters.cline import ClineAdapter
 from .adapters.continue_ import ContinueAdapter
 from .adapters.cursor import CursorAdapter
+from .adapters.paths import datapack_store_path
 from .adapters.vscode import VSCodeAdapter
 from .adapters.windsurf import WindsurfAdapter
 from .adapters.zed import ZedAdapter
@@ -41,10 +42,25 @@ from .checks.secrets import (
     check_secret_reuse,
     check_server_env,
 )
+from .checks.telemetry import check_telemetry
 from .checks.token_store import check_token_store, decode_store
+from .checks.tool_integrity import check_tool_integrity
 from .checks.tool_scope import (
     check_permissions,
     check_server_auto_approve,
+)
+from .checks.versions import (
+    extract_version_coords,
+    extract_version_coords_from_cmdline,
+    vuln_known_finding,
+)
+from .datapack import (
+    AgentCatalog,
+    SecretCatalog,
+    builtin_datapack,
+    compile_agent_catalog,
+    compile_secret_catalog,
+    load_local_datapack,
 )
 from .discovery.process_env import iter_agent_process_envs, looks_like_agent
 from .discovery.sockets import EnumerationResult, enumerate_listening
@@ -105,13 +121,22 @@ def discover_host_config_files(
     return seen
 
 
-def _audit_config(cfg: ParsedConfig, osv_fetch: OsvFetch | None = None) -> list[Server]:
+def _audit_config(
+    cfg: ParsedConfig,
+    osv_fetch: OsvFetch | None = None,
+    secret_catalog: SecretCatalog | None = None,
+) -> list[Server]:
+    # Imported lazily: the drift package pulls in inventory→collect→engine, so a
+    # top-level import here would close a circular-import loop at load time.
+    from .drift.snapshot import tool_identity
+
     servers: list[Server] = []
     for decl in cfg.servers:
         findings: list[Finding] = []
-        findings += check_server_env(decl, cfg.path)
+        findings += check_server_env(decl, cfg.path, catalog=secret_catalog)
         findings += check_server_auto_approve(decl, cfg.path)
         findings += check_server_pinning(decl, cfg.path)
+        findings += check_tool_integrity(decl, cfg.path)
         if osv_fetch is not None:
             findings += _enrich_pinning(decl.name, decl.command, decl.args, cfg.path, osv_fetch)
         servers.append(
@@ -124,6 +149,9 @@ def _audit_config(cfg: ParsedConfig, osv_fetch: OsvFetch | None = None) -> list[
                 state=ServerState.DECLARED,
                 running=False,
                 findings=tuple(findings),
+                # Rug-pull fingerprint: drift flags a same-named server whose
+                # launch identity (command/args/auto-approve) silently changed.
+                tool_identity=tool_identity(decl.command, decl.args, decl.auto_approve),
             )
         )
 
@@ -152,14 +180,39 @@ def _enrich_pinning(
     config_path: str,
     osv_fetch: OsvFetch,
 ) -> list[Finding]:
-    """Query OSV for a pinned package spec and emit a known-vuln finding if any."""
-    spec: PackageSpec | None = parse_package_spec(command, args)
-    if spec is None:
-        return []
-    vuln_ids, critical = osv_fetch(spec.name, spec.version, spec.ecosystem)
-    if not vuln_ids:
-        return []
-    return [known_vuln_finding(server_name, spec, vuln_ids, config_path, critical=critical)]
+    """Query OSV for every pinned coordinate on a launch command and flag vulns.
+
+    The single pinned *runner* spec keeps its existing ``PIN-KNOWN-VULN`` finding;
+    every *other* extracted coordinate (a second dep, a ``python -m`` requirement)
+    that OSV flags becomes a ``VULN-KNOWN`` finding. Coordinates are de-duplicated
+    so a spec covered by the runner finding is never queried or reported twice
+    (Wave 3 Feature V).
+    """
+    findings: list[Finding] = []
+    covered: set[tuple[str, str, str]] = set()
+
+    pinned: PackageSpec | None = parse_package_spec(command, args)
+    if pinned is not None:
+        covered.add((pinned.ecosystem, pinned.name, pinned.version))
+        vuln_ids, critical = osv_fetch(pinned.name, pinned.version, pinned.ecosystem)
+        if vuln_ids:
+            findings.append(
+                known_vuln_finding(server_name, pinned, vuln_ids, config_path, critical=critical)
+            )
+
+    for coord in extract_version_coords(command, args):
+        key = (coord.ecosystem, coord.name, coord.version)
+        if key in covered:
+            continue
+        covered.add(key)
+        vuln_ids, critical = osv_fetch(coord.name, coord.version, coord.ecosystem)
+        if vuln_ids:
+            findings.append(
+                vuln_known_finding(
+                    f"Server {server_name!r}", coord, vuln_ids, config_path, critical=critical
+                )
+            )
+    return findings
 
 
 def _default_osv_fetch(name: str, version: str, ecosystem: str) -> tuple[tuple[str, ...], bool]:
@@ -170,8 +223,10 @@ def _default_osv_fetch(name: str, version: str, ecosystem: str) -> tuple[tuple[s
     return tuple(v.id for v in vulns), any(v.critical for v in vulns)
 
 
-def _audit_env_file(env_file: EnvFile) -> Server:
-    findings = check_env_file_secrets(env_file) + check_secret_at_rest(env_file)
+def _audit_env_file(env_file: EnvFile, secret_catalog: SecretCatalog | None = None) -> Server:
+    findings = check_env_file_secrets(env_file, catalog=secret_catalog) + check_secret_at_rest(
+        env_file, catalog=secret_catalog
+    )
     return Server(
         id=env_file.path,
         bind_addr=None,
@@ -217,6 +272,19 @@ def _posix_file_mode(path: Path) -> int | None:
         return None
     try:
         return stat.S_IMODE(path.stat().st_mode)
+    except OSError:
+        return None
+
+
+def _file_mtime_epoch(path: Path) -> int | None:
+    """Return ``path``'s mtime as whole seconds since the epoch, or ``None``.
+
+    The clock-free half of the telemetry staleness check: the engine reads the
+    file time here and the pure check compares it against the CLI-supplied
+    ``now_epoch`` — no check reads a clock of its own.
+    """
+    try:
+        return int(path.stat().st_mtime)
     except OSError:
         return None
 
@@ -301,7 +369,98 @@ def _audit_token_stores(
     return servers
 
 
-def _audit_process_envs() -> list[Server]:
+def _telemetry_facts(path: Path) -> tuple[bool, int | None, int | None]:
+    """Gather ``(present, mode, mtime_epoch)`` for one telemetry surface.
+
+    Handles a surface that is either a single log file or a directory of logs:
+
+    - a **directory** is "present" only if it holds at least one file; ``mode``
+      is the bitwise-OR of the child files' modes (so a single group/world-
+      readable log trips the perms rule while the directory's own — normally
+      ``0o755`` — mode never causes a false positive), and ``mtime_epoch`` is the
+      newest child's mtime;
+    - a **file** is "present" only if non-empty (an empty log captures nothing).
+
+    Only metadata is touched — existence, mode, mtime, and (for a directory) the
+    child listing. Log *contents* are never read, so no sensitive log data enters
+    the pipeline.
+    """
+    if not path.exists():
+        return (False, None, None)
+    if path.is_dir():
+        try:
+            children = [child for child in path.iterdir() if child.is_file()]
+        except OSError:
+            return (False, None, None)
+        if not children:
+            return (False, None, None)
+        combined: int | None = None
+        for child in children:
+            child_mode = _posix_file_mode(child)
+            if child_mode is not None:
+                combined = child_mode if combined is None else combined | child_mode
+        mtimes = [t for t in (_file_mtime_epoch(child) for child in children) if t is not None]
+        newest = max(mtimes) if mtimes else None
+        return (True, combined, newest)
+    try:
+        empty = path.stat().st_size == 0
+    except OSError:
+        return (False, None, None)
+    if empty:
+        return (False, None, None)
+    return (True, _posix_file_mode(path), _file_mtime_epoch(path))
+
+
+def _audit_telemetry(
+    adapters: Sequence[HostAdapter],
+    system: str,
+    env: Mapping[str, str],
+    now_epoch: int | None,
+) -> list[Server]:
+    """Grade each adapter's agent-host log surface (Feature L; opt-in only).
+
+    Reads only the paths the telemetry registry (``HostAdapter.telemetry_surfaces``)
+    names, and only their *metadata* — presence, POSIX mode, mtime — never the log
+    contents. A surface that is present, owner-only, and fresh yields no finding
+    and is not surfaced. Deterministic given ``now_epoch`` (supplied by ``cli``).
+    """
+    servers: list[Server] = []
+    seen: set[Path] = set()
+    for adapter in adapters:
+        for cand in adapter.telemetry_surfaces(system, env):
+            path = Path(str(cand))
+            if path in seen:
+                continue
+            seen.add(path)
+            present, mode, mtime_epoch = _telemetry_facts(path)
+            findings = check_telemetry(
+                str(path),
+                present=present,
+                mode=mode,
+                mtime_epoch=mtime_epoch,
+                now_epoch=now_epoch,
+            )
+            if findings:
+                servers.append(
+                    Server(
+                        id=f"telemetry://{path}",
+                        bind_addr=None,
+                        port=None,
+                        pid=None,
+                        proc_name=None,
+                        state=ServerState.DECLARED,
+                        running=False,
+                        findings=tuple(findings),
+                    )
+                )
+    return servers
+
+
+def _audit_process_envs(
+    osv_fetch: OsvFetch | None,
+    agent_catalog: AgentCatalog | None = None,
+    secret_catalog: SecretCatalog | None = None,
+) -> list[Server]:
     """Grade secrets in running agent/MCP process environments (Feature G; opt-in).
 
     Enumerates only the invoking user's own agent/MCP processes (the scope
@@ -313,11 +472,23 @@ def _audit_process_envs() -> list[Server]:
     from the enumeration (own-user-only visibility, or a process that exited
     mid-scan) rides along on each surfaced server. Secrets are fingerprinted at
     detection, so no raw environment value reaches a finding.
+
+    When ``osv_fetch`` is set (``--online``), each process's cmdline is also
+    scanned for known-vulnerable package coordinates (Wave 3 Feature V), so a
+    process launched from a vulnerable pinned package is surfaced even with a
+    clean environment.
     """
-    result = iter_agent_process_envs(looks_like_agent)
+    predicate = (
+        looks_like_agent
+        if agent_catalog is None
+        else (lambda text: looks_like_agent(text, catalog=agent_catalog))
+    )
+    result = iter_agent_process_envs(predicate)
     servers: list[Server] = []
     for entry in result.entries:
-        findings = check_process_env_secrets([entry])
+        findings = check_process_env_secrets([entry], catalog=secret_catalog)
+        if osv_fetch is not None:
+            findings += _enrich_cmdline(entry.proc_name, entry.pid, entry.cmdline, osv_fetch)
         if findings:
             servers.append(
                 Server(
@@ -335,6 +506,52 @@ def _audit_process_envs() -> list[Server]:
     return servers
 
 
+def _enrich_cmdline(
+    proc_name: str,
+    pid: int,
+    cmdline: str,
+    osv_fetch: OsvFetch,
+) -> list[Finding]:
+    """Query OSV for known-vulnerable coordinates on a process cmdline (Feature V)."""
+    findings: list[Finding] = []
+    seen: set[tuple[str, str, str]] = set()
+    location = f"process://{proc_name}[{pid}]"
+    for coord in extract_version_coords_from_cmdline(cmdline):
+        key = (coord.ecosystem, coord.name, coord.version)
+        if key in seen:
+            continue
+        seen.add(key)
+        vuln_ids, critical = osv_fetch(coord.name, coord.version, coord.ecosystem)
+        if vuln_ids:
+            findings.append(
+                vuln_known_finding(
+                    f"Process {proc_name!r}", coord, vuln_ids, location, critical=critical
+                )
+            )
+    return findings
+
+
+def _active_secret_and_agent_catalogs(
+    system: str, env: Mapping[str, str]
+) -> tuple[SecretCatalog, AgentCatalog]:
+    """Resolve the active detection catalogs once per scan (Feature D).
+
+    A pack installed by ``update-datapack`` (verified at install time, owner-only
+    at rest) lives in the OS-appropriate local store; if it is present and still
+    parses, its catalogs drive detection. Otherwise — the default case — the
+    built-in pack is used, so a scan with no installed pack is byte-identical to
+    before. A store that no longer parses falls back to the built-in silently
+    (a corrupt store can never crash or weaken a scan below the built-in).
+    """
+    pack = builtin_datapack()
+    store = datapack_store_path(system, env)
+    if store is not None:
+        local = load_local_datapack(Path(str(store)))
+        if local is not None:
+            pack = local
+    return compile_secret_catalog(pack), compile_agent_catalog(pack)
+
+
 def scan(
     *,
     roots: Sequence[Path] | None = None,
@@ -345,6 +562,7 @@ def scan(
     osv_fetch: OsvFetch | None = None,
     inspect_token_stores: bool = False,
     inspect_process_env: bool = False,
+    inspect_telemetry: bool = False,
     now_epoch: int | None = None,
 ) -> Report:
     """Run a full localhost scan and return a deterministic Report.
@@ -366,9 +584,14 @@ def scan(
             the invoking user's own running agent/MCP processes to detect
             plaintext secrets (Feature G). Default False enumerates no processes
             and reads no environments.
+        inspect_telemetry: When True (opt-in), reads the *metadata* (existence,
+            mode, mtime) of the agent-host log surfaces named by the telemetry
+            registry and grades logging health (Feature L). Default False reads
+            nothing new; log contents are never read on either path.
         now_epoch: "Now" in seconds since the epoch, supplied by ``cli`` so the
-            token-store expiry grade stays clock-free here. Only consulted when
-            ``inspect_token_stores`` is True.
+            token-store expiry and telemetry-staleness grades stay clock-free
+            here. Consulted only when ``inspect_token_stores`` or
+            ``inspect_telemetry`` is True.
     """
     system = system or platform.system()
     env = env if env is not None else os.environ
@@ -377,6 +600,10 @@ def scan(
     fetch: OsvFetch | None = None
     if online:
         fetch = osv_fetch if osv_fetch is not None else _default_osv_fetch
+
+    # Active detection catalogs (built-in, or a verified installed data-pack),
+    # resolved once so every check sees the same catalog (Feature D).
+    secret_catalog, agent_catalog = _active_secret_and_agent_catalogs(system, env)
 
     adapters = _adapters()
     servers: list[Server] = []
@@ -388,7 +615,7 @@ def scan(
             raw = _read_config_file(path)
             if raw is None:
                 continue
-            servers.extend(_audit_config(adapter.parse(str(path), raw), fetch))
+            servers.extend(_audit_config(adapter.parse(str(path), raw), fetch, secret_catalog))
 
     # --- project-scoped host configs + .env ---
     for root in roots:
@@ -399,7 +626,7 @@ def scan(
                 raw = _read_config_file(path)
                 if raw is None:
                     continue
-                servers.extend(_audit_config(adapter.parse(str(path), raw), fetch))
+                servers.extend(_audit_config(adapter.parse(str(path), raw), fetch, secret_catalog))
         env_path = root / ".env"
         if env_path.exists():
             raw = _read_config_file(env_path)
@@ -410,7 +637,7 @@ def scan(
                     mode=_posix_file_mode(env_path),
                     git_tracked=_git_tracked(env_path),
                 )
-                servers.append(_audit_env_file(env_file))
+                servers.append(_audit_env_file(env_file, secret_catalog))
 
     # --- credential/token stores at rest (opt-in; zero new reads by default) ---
     if inspect_token_stores:
@@ -418,7 +645,11 @@ def scan(
 
     # --- secrets in running agent-process environments (opt-in; zero by default) ---
     if inspect_process_env:
-        servers.extend(_audit_process_envs())
+        servers.extend(_audit_process_envs(fetch, agent_catalog, secret_catalog))
+
+    # --- agent-host logging health (opt-in; zero new reads by default) ---
+    if inspect_telemetry:
+        servers.extend(_audit_telemetry(adapters, system, env, now_epoch))
 
     # --- running-server discovery + exposure ---
     if enumerate_sockets:
