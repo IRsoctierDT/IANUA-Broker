@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.5.0...ianua-broker-v1.5.1) (2026-08-13)
+
+
+### Bug Fixes
+
+* **schedule:** bake PYTHONPATH into scheduler units for source-tree runs ([#98](https://github.com/IRsoctierDT/IANUA-Broker/issues/98)) ([907841e](https://github.com/IRsoctierDT/IANUA-Broker/commit/907841ecad0c5fd9e656975615dd8762a64100ed))
+
 ## [1.5.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.4.0...ianua-broker-v1.5.0) (2026-08-13)
 
 
