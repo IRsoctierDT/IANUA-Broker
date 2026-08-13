@@ -50,8 +50,10 @@ command: `mcpscan`. License: Apache-2.0.
 - **Localhost only** — `scan` never touches the LAN or third-party systems
   (`mcpscan lan` is a separate, signed-manifest-gated command).
 - **Offline + zero egress by default** — the network is contacted only under an
-  explicit opt-in: `--online` (OSV dependency lookups) or `mcpscan
-  update-datapack`; each one says so.
+  explicit opt-in: `--online` (OSV dependency lookups), `--emit webhook` (an
+  alert POST, destination disclosed), or `mcpscan lan` (authorized,
+  signed-manifest assessment); each one says so. Even `update-datapack` is
+  offline: it verifies and installs a local pack file, never fetching.
 - **Reads nothing extra by default** — deeper surfaces (token stores, running
   process environments, host logging) are read only behind their `--inspect-*`
   flag, which discloses what it touches.
@@ -94,7 +96,7 @@ mcpscan scan --html report.html       # also write a self-contained HTML report
 mcpscan scan --sarif results.sarif    # also write SARIF 2.1.0 for code scanning
 mcpscan scan --fail-on critical       # CI: exit non-zero only on Critical
 mcpscan scan --online                 # opt-in OSV dep-vuln lookups (discloses egress)
-mcpscan scan --emit webhook --emit-url … # emit findings/gate as an alert (opt-in)
+mcpscan scan --emit webhook --emit-webhook-url … # emit findings/gate as an alert (opt-in)
 mcpscan scan --inspect-token-stores   # opt-in: OAuth/session tokens at rest
 mcpscan scan --inspect-process-env    # opt-in: secrets in running agent processes
 mcpscan scan --inspect-telemetry      # opt-in: agent-host logging health
@@ -286,6 +288,36 @@ then diff every change against it. The baseline's digest is re-verified on load,
 so an edited or corrupted baseline is refused rather than trusted. `--json`
 emits the full machine-readable drift; `--no-inventory` snapshots posture only.
 
+### Scheduled re-validation (`mcpscan schedule`)
+
+`schedule` turns the baseline/diff loop into a standing cadence **without a
+resident process**: it renders the text of an OS-native scheduler unit — a
+launchd plist (macOS), a systemd timer+service pair (Linux), or a Task
+Scheduler XML (Windows) — that runs `mcpscan scan` then `mcpscan diff
+--fail-on-regression` hourly, daily, or weekly. The diff runs unconditionally
+after the scan (`scan` exits non-zero on any standing finding at its `--fail-on`
+gate, `high` by default — which must not mask the drift check on a not-yet-clean
+machine), so **the unit's exit code is the drift signal**: green until posture
+regresses from the baseline.
+
+```
+$ mcpscan baseline --out .mcpscan-baseline.json   # the scheduled diff needs a baseline
+$ mcpscan schedule --cadence daily --out com.mcpscan.scan.plist
+note: 'schedule' only generates a scheduler unit; it installs and runs nothing. …
+install (run it yourself; schedule never does): launchctl load …
+```
+
+Trust properties match the rest of the tool: `schedule` **only renders text**.
+It writes the unit solely under an explicit `--out`, and always prints — never
+executes — the `launchctl` / `systemctl` / `schtasks` install command, because
+installing a scheduler is the operator's action. The generators are pure and
+deterministic (identical plans render identical bytes). Running from a source
+tree (mcpscan importable only via `PYTHONPATH`, not installed)? The unit bakes
+that path into the scheduled command — disclosed on stderr, with systemd's
+`%`-specifier and `$`-variable expansion escaped — so the scheduled run
+survives the scheduler's bare environment; installing mcpscan and re-running
+`schedule` yields an install-independent unit.
+
 ### Framework mapping (`mcpscan atlas`)
 
 `atlas` renders the same findings `scan` produces, each annotated with its
@@ -383,7 +415,7 @@ model: [`docs/proposals/LAN_SCANNING.md`](docs/proposals/LAN_SCANNING.md).
 | Doc | What it is |
 |---|---|
 | [docs/SPEC.md](docs/SPEC.md) | Full product & technical specification (testable requirements, scoring rubric, threat model, DoD). |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | 15 architecture decision records. |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | 17 architecture decision records. |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component model, dependency direction, trust boundaries. |
 | [docs/BACKLOG.md](docs/BACKLOG.md) | Sprint-tagged tickets + requirement→ticket traceability. |
 | [docs/SECURITY_SIGNOFF.md](docs/SECURITY_SIGNOFF.md) | Threat-model verification matrix (security sign-off). |
