@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.4.0...ianua-broker-v1.5.0) (2026-08-13)
+
+
+### Features
+
+* add the assessment-only ATB-posture check (--inspect-broker) ([#96](https://github.com/IRsoctierDT/IANUA-Broker/issues/96)) ([08b9d11](https://github.com/IRsoctierDT/IANUA-Broker/commit/08b9d118d66d3a2757963ceb87530c53a1bafe92))
+
+
+### Bug Fixes
+
+* **schedule:** run the drift diff unconditionally, not gated on scan ([#95](https://github.com/IRsoctierDT/IANUA-Broker/issues/95)) ([d4b2bb6](https://github.com/IRsoctierDT/IANUA-Broker/commit/d4b2bb6145a1dbd1914435a191ce8633591ed6b3))
+
 ## [1.4.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.3.0...ianua-broker-v1.4.0) (2026-08-13)
 
 
