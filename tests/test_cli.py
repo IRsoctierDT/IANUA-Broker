@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import stat
 import subprocess  # nosec B404
 import sys
 from collections.abc import Callable
@@ -792,6 +794,113 @@ def test_trust_clean_config_passes_gate_and_writes_json(
     assert rc == 0
     payload = json.loads(dest.read_text(encoding="utf-8"))
     assert payload["profiles"][0]["score"] == 100
+
+
+# --- graph command (Tier 3) ---
+_GRAPH_FAKE_SECRET = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"  # nosec B105 (fake test value)
+
+
+def _write_graph_config(tmp_path: Path) -> None:
+    """A two-server config sharing one GitHub credential where 'shell' is
+    autonomous + privileged — the canonical cross-server CRITICAL chain."""
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "db": {
+                        "command": "node",
+                        "args": ["serve", "--host", "0.0.0.0"],
+                        "env": {"GITHUB_TOKEN": _GRAPH_FAKE_SECRET},
+                    },
+                    "shell": {
+                        "command": "node",
+                        "autoApprove": ["run_command"],
+                        "env": {"GITHUB_TOKEN": _GRAPH_FAKE_SECRET},
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_graph_reports_critical_chain_and_gates(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    _write_graph_config(tmp_path)
+    rc = main(["graph", "--root", str(tmp_path), "--no-inventory"])
+    assert rc == 1  # a CRITICAL chain trips the default --fail-on high gate
+    out = capsys.readouterr().out
+    assert "attack paths" in out and "[CRITICAL]" in out and "GitHub" in out
+
+
+def test_graph_clean_config_exits_zero(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"safe": {"command": "npx", "args": ["x@1.2.3"]}}}),
+        encoding="utf-8",
+    )
+    rc = main(["graph", "--root", str(tmp_path), "--no-inventory"])
+    assert rc == 0  # no actionable chain -> not a gate failure
+    assert "No cross-server attack paths found." in capsys.readouterr().out
+
+
+def test_graph_writes_json_report_and_is_secretless(tmp_path: Path) -> None:
+    _write_graph_config(tmp_path)
+    dest = tmp_path / "graph.json"
+    rc = main(["graph", "--root", str(tmp_path), "--no-inventory", "--json", str(dest)])
+    assert rc == 1
+    text = dest.read_text(encoding="utf-8")
+    payload = json.loads(text)
+    assert payload["schema_version"] == "1.0" and payload["overall_grade"] == "F"
+    assert payload["paths"]
+    assert _GRAPH_FAKE_SECRET not in text  # the raw secret never reaches the report
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permissions only")
+def test_graph_json_is_owner_only(tmp_path: Path) -> None:
+    _write_graph_config(tmp_path)
+    dest = tmp_path / "graph.json"
+    main(["graph", "--root", str(tmp_path), "--no-inventory", "--json", str(dest)])
+    assert stat.S_IMODE(dest.stat().st_mode) == 0o600
+
+
+def test_graph_dot_format_emits_dot(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    _write_graph_config(tmp_path)
+    rc = main(["graph", "--root", str(tmp_path), "--no-inventory", "--graph-format", "dot"])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "digraph attack_paths" in out and "->" in out
+    assert _GRAPH_FAKE_SECRET not in out
+
+
+def test_graph_fail_on_critical_gate(tmp_path: Path) -> None:
+    _write_graph_config(tmp_path)
+    # the chain is CRITICAL, so it also gates at the stricter 'critical' threshold.
+    assert main(["graph", "--root", str(tmp_path), "--no-inventory", "--fail-on", "critical"]) == 1
+
+
+def test_graph_output_is_deterministic(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    _write_graph_config(tmp_path)
+    main(["graph", "--root", str(tmp_path), "--no-inventory", "--graph-format", "dot"])
+    first = capsys.readouterr().out
+    main(["graph", "--root", str(tmp_path), "--no-inventory", "--graph-format", "dot"])
+    second = capsys.readouterr().out
+    assert first == second and "digraph" in first
+
+
+def test_graph_default_inventory_path_runs(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    # exercise the default inventory-on path with sockets stubbed empty, so the
+    # command stays deterministic and offline (no real socket table read).
+    import mcpscan.inventory.collect as collect_mod
+    from mcpscan.discovery.sockets import EnumerationResult
+
+    monkeypatch.setattr(collect_mod, "enumerate_listening", lambda: EnumerationResult(sockets=()))
+    _write_graph_config(tmp_path)
+    rc = main(["graph", "--root", str(tmp_path)])
+    assert rc == 1
+    assert "attack paths" in capsys.readouterr().out
 
 
 # --- baseline / diff commands (Tier 5) ---
