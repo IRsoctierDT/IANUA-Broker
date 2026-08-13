@@ -40,6 +40,68 @@ def test_python_dash_m_mcpscan_runs() -> None:
     assert "mcpscan" in proc.stdout
 
 
+def test_resolve_invocation_prefers_path_install(monkeypatch: pytest.MonkeyPatch) -> None:
+    import shutil
+
+    from mcpscan import cli
+
+    monkeypatch.setattr(shutil, "which", lambda _cmd: "/usr/local/bin/mcpscan")
+    assert cli._resolve_mcpscan_invocation() == (("/usr/local/bin/mcpscan",), None)
+
+
+def test_resolve_invocation_installed_package_bakes_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # With the package on the interpreter's own default path (not PYTHONPATH,
+    # not the start dir), the bare `python -m mcpscan` fallback works as-is.
+    import shutil
+
+    from mcpscan import cli
+
+    monkeypatch.setattr(shutil, "which", lambda _cmd: None)
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    monkeypatch.setattr(sys, "path", [str(tmp_path), *sys.path[1:]])
+    assert cli._resolve_mcpscan_invocation() == ((sys.executable, "-m", "mcpscan"), None)
+
+
+def test_resolve_invocation_source_tree_returns_package_parent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Importable only via a PYTHONPATH entry: a scheduler's bare environment
+    # would not reproduce it, so resolution must surface the package parent.
+    import shutil
+
+    from mcpscan import cli
+
+    parent = str(Path(cli.__file__).resolve().parent.parent)
+    monkeypatch.setattr(shutil, "which", lambda _cmd: None)
+    monkeypatch.setenv("PYTHONPATH", parent)
+    assert cli._resolve_mcpscan_invocation() == ((sys.executable, "-m", "mcpscan"), parent)
+
+
+def test_resolve_invocation_symlinked_package_dir_matches_entry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The package dir symlinked from under the PYTHONPATH entry (an aggregation
+    # src/ of links): comparing resolved parents misses it, because __file__
+    # resolves through the link while the entry does not. Matching must resolve
+    # <entry>/mcpscan instead, and bake the entry itself — the path that
+    # provably imports.
+    import shutil
+
+    from mcpscan import cli
+
+    aggregation = tmp_path / "src"
+    aggregation.mkdir()
+    (aggregation / "mcpscan").symlink_to(Path(cli.__file__).resolve().parent)
+    monkeypatch.setattr(shutil, "which", lambda _cmd: None)
+    monkeypatch.setenv("PYTHONPATH", str(aggregation))
+    assert cli._resolve_mcpscan_invocation() == (
+        (sys.executable, "-m", "mcpscan"),
+        str(aggregation),
+    )
+
+
 def test_scan_clean_returns_zero(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

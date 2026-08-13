@@ -572,19 +572,56 @@ def _run_diff(args: argparse.Namespace) -> int:
 _DEFAULT_BASELINE_NAME = ".mcpscan-baseline.json"
 
 
-def _resolve_mcpscan_invocation() -> tuple[str, ...]:
-    """Resolve how to invoke mcpscan from a scheduler (a filesystem lookup).
+def _resolve_mcpscan_invocation() -> tuple[tuple[str, ...], str | None]:
+    """Resolve how a scheduler invokes mcpscan: ``(argv, pythonpath)``.
 
     Kept in the CLI (never the pure generators) so :mod:`mcpscan.schedule` stays
     I/O-free. Prefers an installed ``mcpscan`` on PATH; otherwise falls back to
     ``python -m mcpscan`` so a venv/editable install still schedules cleanly.
+    The scheduler runs that fallback in a bare environment (no ``PYTHONPATH``,
+    different cwd), so for a source-tree run — this package importable only via
+    such a transient search-path entry — the second element is the package
+    parent for the generators to bake into the command as ``PYTHONPATH``;
+    without it every scheduled run would die with ``ModuleNotFoundError``.
     """
     import shutil
 
     exe = shutil.which("mcpscan")
     if exe is not None:
-        return (exe,)
-    return (sys.executable, "-m", "mcpscan")
+        return (exe,), None
+    return (sys.executable, "-m", "mcpscan"), _transient_package_parent()
+
+
+def _transient_package_parent() -> str | None:
+    """The search-path entry mcpscan imports through, iff it is transient.
+
+    "Transient" search-path entries are the ones a scheduler's bare environment
+    does not reproduce: the interpreter start directory (``sys.path[0]``) and
+    ``PYTHONPATH``. If this package is reachable through one of those (a
+    ``PYTHONPATH=src`` source-tree run), return that entry for the unit to bake
+    as ``PYTHONPATH``; for an installed package (site-packages), which a bare
+    interpreter finds on its own, return None. Matching resolves
+    ``<entry>/mcpscan`` against the real package directory instead of comparing
+    the entry to the package parent, so a package dir *symlinked* from under
+    the entry (an aggregation ``src/`` of links) still matches — the
+    parent-comparison form resolves the two sides asymmetrically and would
+    silently emit a unit that dies with ``ModuleNotFoundError``.
+    """
+    import os
+
+    package_dir = Path(__file__).resolve().parent
+    entries: list[str] = []
+    if sys.path and sys.path[0]:
+        entries.append(sys.path[0])
+    entries.extend(e for e in os.environ.get("PYTHONPATH", "").split(os.pathsep) if e)
+    for entry in entries:
+        candidate = Path(os.path.abspath(entry))
+        try:
+            if (candidate / "mcpscan").resolve() == package_dir:
+                return str(candidate)
+        except OSError:  # unreadable or looping entry — cannot be the import source
+            continue
+    return None
 
 
 def _run_schedule(args: argparse.Namespace) -> int:
@@ -621,11 +658,13 @@ def _run_schedule(args: argparse.Namespace) -> int:
         if args.baseline is not None
         else Path(roots[0]) / _DEFAULT_BASELINE_NAME
     )
+    invocation, pythonpath = _resolve_mcpscan_invocation()
     plan = SchedulePlan(
-        invocation=_resolve_mcpscan_invocation(),
+        invocation=invocation,
         roots=roots,
         baseline=str(baseline),
         cadence=cadence,
+        pythonpath=pythonpath,
     )
 
     print(
@@ -634,6 +673,14 @@ def _run_schedule(args: argparse.Namespace) -> int:
         f"create it first: mcpscan baseline --out {baseline}",
         file=sys.stderr,
     )
+    if pythonpath is not None:
+        print(
+            "note: mcpscan is not installed on PATH and imports only via this "
+            f"source tree, so the unit bakes PYTHONPATH={pythonpath} into the "
+            "scheduled command. It breaks if the tree moves; install mcpscan "
+            "and re-run 'schedule' for an install-independent unit.",
+            file=sys.stderr,
+        )
 
     system = platform.system()
     if system == "Darwin":

@@ -56,13 +56,19 @@ class SchedulePlan:
     ``(sys.executable, "-m", "mcpscan")``) — resolved in ``cli`` so this module
     performs no filesystem lookup. ``roots`` are the project roots to scan (each
     is passed as a ``--root`` to both sub-commands); ``baseline`` is the snapshot
-    path the ``diff`` sub-command compares against.
+    path the ``diff`` sub-command compares against. ``pythonpath`` is the mcpscan
+    package parent to bake into the command as ``PYTHONPATH`` — set by ``cli``
+    only for source-tree runs, where the scheduler's bare environment (no
+    ``PYTHONPATH``, different cwd) would otherwise fail the ``python -m mcpscan``
+    fallback with ``ModuleNotFoundError``; ``None`` for an installed mcpscan a
+    bare interpreter finds on its own.
     """
 
     invocation: tuple[str, ...]
     roots: tuple[str, ...]
     baseline: str
     cadence: Cadence
+    pythonpath: str | None = None
 
 
 # --- embedded command builders (pure) ---
@@ -79,6 +85,11 @@ def _posix_command(plan: SchedulePlan) -> str:
     ``shlex.quote``-escaped so paths with spaces survive the shell.
     """
     prefix = " ".join(shlex.quote(tok) for tok in plan.invocation)
+    if plan.pythonpath is not None:
+        # A leading VAR=value assignment scopes to a single command and only
+        # parses as an assignment while the name sits outside any quotes — so
+        # quote just the value, and put it on the prefix both halves share.
+        prefix = f"PYTHONPATH={shlex.quote(plan.pythonpath)} {prefix}"
     roots = "".join(f" --root {shlex.quote(root)}" for root in plan.roots)
     scan = f"{prefix} scan{roots}"
     diff = f"{prefix} diff --baseline {shlex.quote(plan.baseline)}{roots} --fail-on-regression"
@@ -106,7 +117,13 @@ def _windows_command(plan: SchedulePlan) -> str:
     roots = "".join(f" --root {q(root)}" for root in plan.roots)
     scan = f"{prefix} scan{roots}"
     diff = f"{prefix} diff --baseline {q(plan.baseline)}{roots} --fail-on-regression"
-    return f"{scan} & {diff}"
+    command = f"{scan} & {diff}"
+    if plan.pythonpath is not None:
+        # cmd's `set` includes everything up to the separator in the value —
+        # even a trailing space — so always use the quoted `set "VAR=value"`
+        # form. One assignment persists across the whole `&` chain.
+        command = f'set "PYTHONPATH={plan.pythonpath}" & {command}'
+    return command
 
 
 # --- launchd (macOS / Darwin) ---
@@ -149,15 +166,25 @@ def systemd_units(plan: SchedulePlan) -> tuple[str, str]:
     it on the cadence via ``OnCalendar`` (systemd's built-in ``hourly`` /
     ``daily`` / ``weekly`` shortcuts) and is ``Persistent`` so a run missed while
     the machine was off is caught up on next boot.
+
+    Security consideration: systemd applies its own expansions to ``ExecStart``
+    regardless of shell-style quoting — ``%``-specifiers (systemd.unit(5)) and
+    ``$``-variable substitution (systemd.service(5)) — so every literal ``%`` and
+    ``$`` in the command — a root, the baseline, or the baked ``PYTHONPATH`` — is
+    written as ``%%`` / ``$$``; otherwise a valid specifier silently rewrites the
+    path and an invalid one drops the ``ExecStart`` line entirely. (A raw newline
+    in a path cannot be represented in a unit file line at all; such paths need
+    the launchd/Windows channels or an installed mcpscan.)
     """
     command = _posix_command(plan)
+    execstart = shlex.quote(command).replace("%", "%%").replace("$", "$$")
     service = (
         "[Unit]\n"
         "Description=IANUA-Broker posture scan + drift check\n"
         "\n"
         "[Service]\n"
         "Type=oneshot\n"
-        f"ExecStart=/bin/sh -c {shlex.quote(command)}\n"
+        f"ExecStart=/bin/sh -c {execstart}\n"
     )
     timer = (
         "[Unit]\n"

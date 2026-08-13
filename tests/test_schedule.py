@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import platform
 import plistlib
+import shlex
+import shutil
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -29,12 +32,15 @@ MCPSCAN = "/usr/local/bin/mcpscan"
 _TASK_NS = "http://schemas.microsoft.com/windows/2004/02/mit/task"
 
 
-def _plan(cadence: Cadence = Cadence.DAILY, *, root: str = "/proj") -> SchedulePlan:
+def _plan(
+    cadence: Cadence = Cadence.DAILY, *, root: str = "/proj", pythonpath: str | None = None
+) -> SchedulePlan:
     return SchedulePlan(
         invocation=(MCPSCAN,),
         roots=(root,),
         baseline=f"{root}/.mcpscan-baseline.json",
         cadence=cadence,
+        pythonpath=pythonpath,
     )
 
 
@@ -126,6 +132,65 @@ def test_windows_quotes_paths_with_spaces() -> None:
     arguments = ET.fromstring(xml).find(f".//{{{_TASK_NS}}}Arguments")
     assert arguments is not None and arguments.text is not None
     assert '"C:/proj dir"' in arguments.text  # cmd-style double-quoting, not POSIX
+
+
+# --- source-tree runs (pythonpath baked into the command) ---
+def test_posix_pythonpath_prefixes_scan_and_diff() -> None:
+    # A POSIX `VAR=value cmd` assignment scopes to that one command, so both
+    # halves of `scan ; diff` must carry it; the name must sit outside the
+    # quotes to parse as an assignment, so only the value is shlex-quoted.
+    plist = launchd_plist(_plan(pythonpath="/src tree"))
+    command = plistlib.loads(plist.encode("utf-8"))["ProgramArguments"][2]
+    assert command.count("PYTHONPATH='/src tree' ") == 2
+    # systemd re-quotes the whole command for its own ExecStart line, so unwrap
+    # it back to the /bin/sh -c payload before counting.
+    _timer, service = systemd_units(_plan(pythonpath="/src tree"))
+    execstart = next(line for line in service.splitlines() if line.startswith("ExecStart="))
+    payload = shlex.split(execstart.removeprefix("ExecStart="))[2]
+    assert payload.count("PYTHONPATH='/src tree' ") == 2
+
+
+def test_windows_pythonpath_uses_quoted_set_prefix() -> None:
+    # One `set "VAR=value"` persists across the whole `&` chain; the quoted
+    # form keeps the space before `&` out of the value.
+    xml = windows_task_xml(_plan(pythonpath="C:/src tree"))
+    arguments = ET.fromstring(xml).find(f".//{{{_TASK_NS}}}Arguments")
+    assert arguments is not None and arguments.text is not None
+    assert arguments.text.startswith('/c "set "PYTHONPATH=C:/src tree" & ')
+    assert arguments.text.count("PYTHONPATH") == 1
+
+
+def test_no_pythonpath_keeps_commands_clean() -> None:
+    assert "PYTHONPATH" not in launchd_plist(_plan())
+    assert "PYTHONPATH" not in "".join(systemd_units(_plan()))
+    assert "PYTHONPATH" not in windows_task_xml(_plan())
+
+
+def test_systemd_escapes_specifier_and_variable_expansion() -> None:
+    # systemd applies %-specifier (systemd.unit(5)) and $-variable
+    # (systemd.service(5)) expansion to ExecStart even within shell quotes: a
+    # valid %h silently rewrites the path, an invalid %2 drops the ExecStart
+    # line, and ${VAR} substitutes at execution. Every literal % and $ must
+    # therefore be doubled — in roots, baseline, and PYTHONPATH.
+    # A space forces shlex quoting; % and $ ride inside the quotes — the exact
+    # combination systemd's quote-insensitive expansion would corrupt.
+    root, src = "/srv/my %20 $repo", "/srv/my %20 $repo/src"
+    _timer, service = systemd_units(_plan(root=root, pythonpath=src))
+    execstart = next(line for line in service.splitlines() if line.startswith("ExecStart="))
+    assert "%" not in execstart.replace("%%", "")  # every % is escaped as %%
+    assert "$" not in execstart.replace("$$", "")  # every $ is escaped as $$
+    # After systemd's own %%->% and $$->$ unescapes, the /bin/sh payload is
+    # byte-identical to the intended command: both halves carry PYTHONPATH,
+    # roots intact.
+    unescaped = execstart.removeprefix("ExecStart=").replace("%%", "%").replace("$$", "$")
+    payload = shlex.split(unescaped)[2]
+    assert payload.count(f"PYTHONPATH='{src}' ") == 2
+    assert f"--root '{root}'" in payload
+    # launchd needs no such escaping: the command rides in ProgramArguments
+    # verbatim (plistlib), and launchd performs no specifier expansion.
+    plist = launchd_plist(_plan(root=root, pythonpath=src))
+    command = plistlib.loads(plist.encode("utf-8"))["ProgramArguments"][2]
+    assert "%%" not in command and root in command
 
 
 # --- determinism (pure: no clock, no I/O) ---
@@ -232,3 +297,26 @@ def test_schedule_discloses_baseline_creation(
     main(["schedule", "--cadence", "daily", "--root", str(tmp_path)])
     err = capsys.readouterr().err
     assert "mcpscan baseline --out" in err  # tells the user to create the baseline first
+
+
+def test_schedule_source_tree_run_bakes_pythonpath(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    # Regression: a PYTHONPATH=src source-tree run used to emit units running a
+    # bare `python -m mcpscan`, and every scheduled run died with
+    # ModuleNotFoundError in the scheduler's empty environment.
+    import mcpscan
+
+    parent = str(Path(mcpscan.__file__).resolve().parent.parent)
+    monkeypatch.setattr(platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(shutil, "which", lambda _cmd: None)  # no installed mcpscan
+    monkeypatch.setenv("PYTHONPATH", parent)
+    out = tmp_path / "agent.plist"
+    rc = main(["schedule", "--cadence", "daily", "--root", str(tmp_path), "--out", str(out)])
+    assert rc == 0
+    command = plistlib.loads(out.read_bytes())["ProgramArguments"][2]
+    fallback = " ".join(shlex.quote(tok) for tok in (sys.executable, "-m", "mcpscan"))
+    assert command.count(f"PYTHONPATH={shlex.quote(parent)} {fallback}") == 2  # scan AND diff
+    err = capsys.readouterr().err
+    assert f"PYTHONPATH={parent}" in err  # the baked path is disclosed loudly
+    assert "install" in err.lower()  # with guidance toward an install-independent unit
