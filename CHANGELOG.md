@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.2.0...ianua-broker-v1.3.0) (2026-08-13)
+
+
+### Features
+
+* add mcpscan graph — cross-server AI attack-path analysis (Tier 3) ([#88](https://github.com/IRsoctierDT/IANUA-Broker/issues/88)) ([b8b0af6](https://github.com/IRsoctierDT/IANUA-Broker/commit/b8b0af644eae16aed50089fc805c0df7caa3235d))
+
 ## [1.2.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.1.0...ianua-broker-v1.2.0) (2026-08-13)
 
 
