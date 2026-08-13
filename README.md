@@ -102,6 +102,8 @@ mcpscan inventory                     # classified AI/MCP asset list (see below)
 mcpscan atlas                         # findings mapped to security frameworks
 mcpscan trust                         # per-agent Trust Score + risk relationships
 mcpscan trust --min-grade B           # CI: fail if any tool grades below B
+mcpscan graph                         # cross-server AI attack-path graph (see below)
+mcpscan graph --graph-format dot      # Graphviz DOT export for visualization
 mcpscan baseline --out base.json      # snapshot current posture (digest-signed)
 mcpscan diff --baseline base.json --fail-on-regression   # drift gate for CI
 mcpscan diff --baseline base.json --max-age-days 30      # + warn if the baseline is stale
@@ -226,6 +228,34 @@ radius). Scoring reuses the exact predicates `scan` trusts, so the two never
 diverge. `--min-grade` makes it a CI gate; `--json` emits the full analysis; a
 profile is **secretless** (a credential count, never a value). Read-only and
 offline.
+
+### AI attack-path graph (`mcpscan graph`)
+
+Where `trust` scores each server on its own, `graph` chains them: an **AI
+attack-path graph** (not a network graph) that reasons about *tool and trust
+chaining* — how an attacker who lands on an exposed surface pivots, via a shared
+credential and a privileged/autonomous tool, to a high-value target.
+
+```
+$ mcpscan graph
+AI Agentic MCPscan — attack paths: 1 path(s) (1 critical, 0 high); overall grade F
+
+[CRITICAL] exposed 'db' (wildcard / public bind) -> shared credential GITHUB_TOKEN
+           -> 'shell' (autonomous, dangerous tools) -> GitHub
+    why: a credential shared across servers lets the attacker pivot from the
+         exposed server to another that holds the same secret; 'shell'
+         auto-approves dangerous tools, so it acts with no human in the loop.
+```
+
+It composes over what the tool already collects — trust factors, reachability
+tiers, shared-credential fingerprints, and the inventory — plus one **safe**
+inference: a credential's *key name* (`GITHUB_TOKEN`, never its value) maps to
+the target it unlocks. Path severity follows the entry's reachability
+(wildcard/public → Critical, private-LAN → High), with a shared-credential
+cross-server pivot escalating to Critical. `--graph-format dot` exports Graphviz
+for visualization; `--json` emits the full node/edge/path model; `--fail-on`
+makes it a CI gate. Pure, offline, read-only, and **secretless** (no raw value
+reaches the terminal, JSON, or DOT).
 
 ### Drift detection (`mcpscan baseline` / `mcpscan diff`)
 
@@ -382,9 +412,10 @@ tags, reused-credential detection); **detection reach & quiet-read surfaces**
 credential inspection, and an autonomous-exfiltration trust composite); and
 **hardening & extensibility** (reachability tiering, `--online` dependency-vuln
 lookups, tool-integrity heuristics, agent-host telemetry checks, `mcpscan
-selftest`, and a signed detection **data-pack** refresh channel). Next: `graph`
-(Tier 3 — an AI attack-path graph built on the trust model) and real-lab
-dogfooding (stakeholder configs + a pfSense/Suricata network lab).
+selftest`, and a signed detection **data-pack** refresh channel). **`graph`
+(Tier 3 — the cross-server AI attack-path graph) has now landed**, completing
+the platform tiers. Next: real-lab dogfooding (stakeholder configs + a
+pfSense/Suricata network lab).
 
 ## License
 
