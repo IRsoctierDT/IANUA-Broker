@@ -39,7 +39,9 @@ command: `mcpscan`. License: Apache-2.0.
 - **Goes deeper, opt-in** — `--online` OSV dependency-vuln lookups,
   `--inspect-token-stores` (OAuth/session tokens at rest),
   `--inspect-process-env` (secrets in running agent processes),
-  `--inspect-telemetry` (agent-host logging health), `mcpscan selftest`
+  `--inspect-telemetry` (agent-host logging health), `--inspect-broker`
+  (is privileged tool access fronted by an [Agent Trust
+  Broker](docs/proposals/ATB_POSTURE_CHECK.md)?), `mcpscan selftest`
   (catches a degraded scanner), and a signed detection **data-pack** refresh
   channel (`mcpscan update-datapack`).
 
@@ -96,6 +98,7 @@ mcpscan scan --emit webhook --emit-url … # emit findings/gate as an alert (opt
 mcpscan scan --inspect-token-stores   # opt-in: OAuth/session tokens at rest
 mcpscan scan --inspect-process-env    # opt-in: secrets in running agent processes
 mcpscan scan --inspect-telemetry      # opt-in: agent-host logging health
+mcpscan scan --inspect-broker         # opt-in: is privileged tool access fronted by a trust broker?
 mcpscan scan --show-secrets           # reveal masked (first-2/last-2) values
 mcpscan scan --fix                    # apply safe tool-scope fixes (backs up first)
 mcpscan inventory                     # classified AI/MCP asset list (see below)

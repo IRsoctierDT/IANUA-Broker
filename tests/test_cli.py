@@ -1282,3 +1282,44 @@ def test_scan_sarif_marks_accepted_finding_suppressed(
     assert suppression["kind"] == "external"
     assert suppression["status"] == "accepted"
     assert "Jane Doe" in suppression["justification"]
+
+
+# --- Agent Trust Broker posture inspection wiring (ATB_POSTURE_CHECK.md) ---
+def test_inspect_broker_discloses_and_flags_absent(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    from mcpscan.discovery.sockets import EnumerationResult
+
+    monkeypatch.setattr(engine_mod, "enumerate_listening", lambda: EnumerationResult(sockets=()))
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    cfg = {
+        "mcpServers": {
+            "shell": {"command": "npx", "args": ["-y", "srv"], "autoApprove": ["run_command"]}
+        }
+    }
+    (proj / ".mcp.json").write_text(json.dumps(cfg), encoding="utf-8")
+
+    rc = main(["scan", "--inspect-broker", "--root", str(proj)])
+    captured = capsys.readouterr()
+    assert rc == 1  # BROKER-ABSENT is HIGH -> blocks at the default gate
+    assert "broker://" in captured.out
+    assert "not fronted by an Agent Trust Broker" in captured.out
+    assert "never writes to or contacts the broker" in captured.err
+
+
+def test_default_scan_omits_broker_note(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    make_report: Callable[..., Report],
+) -> None:
+    monkeypatch.setattr(engine_mod, "scan", lambda **_: make_report())
+    main(["scan"])
+    assert "inspect-broker" not in capsys.readouterr().err

@@ -143,6 +143,36 @@ def datapack_store_path(
     return home.joinpath(".config", *rel)
 
 
+def ianua_broker_manifest_candidates(
+    system: str,
+    env: Mapping[str, str],
+) -> list[PurePath]:
+    """Return candidate Agent Trust Broker (ATB) manifest paths for the given OS.
+
+    The ATB writes a single ``broker.json`` manifest naming the MCP servers it
+    fronts (see ``docs/proposals/ATB_POSTURE_CHECK.md`` §2). Its location mirrors
+    the data-pack store's per-OS layout: ``$XDG_CONFIG_HOME/ianua/broker.json``
+    on POSIX (falling back to ``~/.config/ianua/broker.json``) and
+    ``%APPDATA%\\ianua\\broker.json`` on Windows. The path is a *candidate*: the
+    caller checks whether it exists — a missing manifest is the common
+    (unbrokered) case, not an error. Pure (computed from ``system``/``env``); no
+    I/O. Returns ``[]`` when no home / ``APPDATA`` can be resolved.
+    """
+    rel = ("ianua", "broker.json")
+    if system == "Windows":
+        appdata = env.get("APPDATA")
+        if appdata:
+            return [PureWindowsPath(appdata).joinpath(*rel)]
+        return []
+    xdg = env.get("XDG_CONFIG_HOME")
+    if xdg:
+        return [PurePosixPath(xdg).joinpath(*rel)]
+    home = _home(system, env)
+    if home is None:
+        return []
+    return [home.joinpath(".config", *rel)]
+
+
 def cursor_config_candidates(
     system: str,
     env: Mapping[str, str],

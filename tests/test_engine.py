@@ -764,3 +764,190 @@ def test_telemetry_absent_finding_does_not_worsen_overall_grade(tmp_path: Path) 
         now_epoch=_TELE_NOW,
     )
     assert report.overall_grade == "A"
+
+
+# --- Agent Trust Broker posture / governance (opt-in; ATB_POSTURE_CHECK.md) ---
+def _broker_servers(report: object) -> list[object]:
+    return [s for s in report.servers if s.id.startswith("broker://")]  # type: ignore[attr-defined]
+
+
+def _privileged_project(root: Path, name: str = "shell") -> str:
+    """Write a project .mcp.json with one privileged server; return its subject id."""
+    cfg = {
+        "mcpServers": {
+            name: {"command": "npx", "args": ["-y", "srv"], "autoApprove": ["run_command"]}
+        }
+    }
+    (root / ".mcp.json").write_text(json.dumps(cfg), encoding="utf-8")
+    return f"{root / '.mcp.json'}#{name}"
+
+
+def _broker_manifest(home: Path, body: object | str) -> Path:
+    path = home / ".config" / "ianua" / "broker.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = body if isinstance(body, str) else json.dumps(body)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_broker_absent_for_privileged_unbrokered_server(tmp_path: Path) -> None:
+    home, proj = tmp_path / "home", tmp_path / "proj"
+    home.mkdir()
+    proj.mkdir()
+    _privileged_project(proj)
+    report = scan(
+        roots=[proj],
+        system="Linux",
+        env={"HOME": str(home)},
+        enumerate_sockets=False,
+        inspect_broker=True,
+    )
+    servers = _broker_servers(report)
+    assert len(servers) == 1
+    assert {f.id for f in servers[0].findings} == {"BROKER-ABSENT"}
+
+
+def test_broker_sound_manifest_clears_absent(tmp_path: Path) -> None:
+    home, proj = tmp_path / "home", tmp_path / "proj"
+    home.mkdir()
+    proj.mkdir()
+    subject = _privileged_project(proj)
+    _broker_manifest(
+        home,
+        {
+            "schema_version": "1.0",
+            "fronts": [subject],
+            "allowlist": "least_privilege",
+            "tool_manifests": "signed",
+            "audit_log": "enabled",
+        },
+    )
+    report = scan(
+        roots=[proj],
+        system="Linux",
+        env={"HOME": str(home)},
+        enumerate_sockets=False,
+        inspect_broker=True,
+    )
+    assert _broker_servers(report) == []
+
+
+def test_broker_not_read_without_optin(tmp_path: Path) -> None:
+    # Default scan reads no manifest: even a malformed one present is not touched,
+    # and a privileged unbrokered server yields no broker finding.
+    home, proj = tmp_path / "home", tmp_path / "proj"
+    home.mkdir()
+    proj.mkdir()
+    _privileged_project(proj)
+    _broker_manifest(home, "not json{")
+    report = scan(
+        roots=[proj],
+        system="Linux",
+        env={"HOME": str(home)},
+        enumerate_sockets=False,
+    )
+    assert _broker_servers(report) == []
+
+
+def test_broker_malformed_manifest_parse_error_and_incomplete(tmp_path: Path) -> None:
+    home, proj = tmp_path / "home", tmp_path / "proj"
+    home.mkdir()
+    proj.mkdir()
+    _privileged_project(proj)
+    _broker_manifest(home, "not json{")
+    report = scan(
+        roots=[proj],
+        system="Linux",
+        env={"HOME": str(home)},
+        enumerate_sockets=False,
+        inspect_broker=True,
+    )
+    servers = _broker_servers(report)
+    assert len(servers) == 1
+    ids = {f.id for f in servers[0].findings}
+    # Malformed manifest verifies nothing: PARSE-ERROR + the privileged server
+    # treated as unbrokered — no crash.
+    assert ids == {"BROKER-PARSE-ERROR", "BROKER-ABSENT"}
+    assert servers[0].inspection_incomplete is True
+
+
+def test_broker_manifest_quality_findings_surface(tmp_path: Path) -> None:
+    home, proj = tmp_path / "home", tmp_path / "proj"
+    home.mkdir()
+    proj.mkdir()
+    subject = _privileged_project(proj)
+    _broker_manifest(
+        home,
+        {
+            "schema_version": "1.0",
+            "fronts": [subject],
+            "allowlist": "wildcard",
+            "tool_manifests": "unverified",
+            "audit_log": "off",
+        },
+    )
+    report = scan(
+        roots=[proj],
+        system="Linux",
+        env={"HOME": str(home)},
+        enumerate_sockets=False,
+        inspect_broker=True,
+    )
+    servers = _broker_servers(report)
+    assert len(servers) == 1
+    assert {f.id for f in servers[0].findings} == {
+        "BROKER-MANIFEST-UNVERIFIED",
+        "BROKER-NO-AUDIT",
+        "BROKER-ALLOWLIST-PERMISSIVE",
+    }
+
+
+def test_broker_manifest_extra_field_never_reaches_json(tmp_path: Path) -> None:
+    # Secretless: a stray/hostile field in the manifest is never parsed or
+    # surfaced — only the documented non-secret posture fields are read.
+    from mcpscan.report.json_report import render_json
+
+    home, proj = tmp_path / "home", tmp_path / "proj"
+    home.mkdir()
+    proj.mkdir()
+    _privileged_project(proj)
+    _broker_manifest(
+        home,
+        {
+            "schema_version": "1.0",
+            "fronts": [],
+            "allowlist": "wildcard",
+            "tool_manifests": "signed",
+            "audit_log": "enabled",
+            "stray_token": "sk-ant-should-never-appear",
+        },
+    )
+    report = scan(
+        roots=[proj],
+        system="Linux",
+        env={"HOME": str(home)},
+        enumerate_sockets=False,
+        inspect_broker=True,
+    )
+    out = render_json(report)
+    assert "BROKER-ALLOWLIST-PERMISSIVE" in out  # the finding IS surfaced
+    assert "sk-ant-should-never-appear" not in out
+    assert "stray_token" not in out
+
+
+def test_broker_absent_does_not_run_without_privileged_server(tmp_path: Path) -> None:
+    # A non-privileged declared server needs no broker: opt-in on, no manifest,
+    # yet nothing is surfaced.
+    home, proj = tmp_path / "home", tmp_path / "proj"
+    home.mkdir()
+    proj.mkdir()
+    cfg = {"mcpServers": {"safe": {"command": "npx", "args": ["-y", "srv@1.2.3"]}}}
+    (proj / ".mcp.json").write_text(json.dumps(cfg), encoding="utf-8")
+    report = scan(
+        roots=[proj],
+        system="Linux",
+        env={"HOME": str(home)},
+        enumerate_sockets=False,
+        inspect_broker=True,
+    )
+    assert _broker_servers(report) == []

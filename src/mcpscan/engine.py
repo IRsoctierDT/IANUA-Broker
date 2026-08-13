@@ -18,16 +18,22 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
 
-from .adapters.base import HostAdapter, ParsedConfig
+from .adapters.base import HostAdapter, ParsedConfig, ServerDecl
 from .adapters.claude import ClaudeAdapter
 from .adapters.cline import ClineAdapter
 from .adapters.continue_ import ContinueAdapter
 from .adapters.cursor import CursorAdapter
-from .adapters.paths import datapack_store_path
+from .adapters.paths import datapack_store_path, ianua_broker_manifest_candidates
 from .adapters.vscode import VSCodeAdapter
 from .adapters.windsurf import WindsurfAdapter
 from .adapters.zed import ZedAdapter
 from .checks import EnvFile, parse_env_text
+from .checks.broker import (
+    BrokerManifest,
+    BrokerParseError,
+    check_broker_posture,
+    parse_broker_manifest,
+)
 from .checks.exposure import check_socket_exposure
 from .checks.pinning import (
     PackageSpec,
@@ -456,6 +462,68 @@ def _audit_telemetry(
     return servers
 
 
+def _audit_broker(
+    subjects: Sequence[tuple[str, ServerDecl]],
+    system: str,
+    env: Mapping[str, str],
+) -> list[Server]:
+    """Grade Agent Trust Broker posture over declared servers (Feature; opt-in).
+
+    Reads the single documented broker manifest (``broker.json``, via ``io_safe``)
+    and grades whether each privileged server is fronted and whether the broker is
+    sound. Assessment-only: it reads the manifest and never writes, enforces, or
+    contacts the broker. A missing manifest is the common (unbrokered) case, not
+    an error — privileged servers then surface as ``BROKER-ABSENT``. A file that
+    exists but is malformed or unreadable degrades to ``BROKER-PARSE-ERROR`` and
+    rides ``inspection_incomplete``, never a crash. The manifest carries no
+    secrets, so no redaction boundary is crossed. All findings are collected onto
+    a single synthetic ``broker://`` server (mirroring the token-store/telemetry
+    surfaces); each finding's own location identifies the affected server/manifest.
+    """
+    candidates = [Path(str(c)) for c in ianua_broker_manifest_candidates(system, env)]
+    manifest_file = next((p for p in candidates if p.is_file()), None)
+    present = manifest_file is not None
+
+    parsed: BrokerManifest | BrokerParseError | None = None
+    if manifest_file is not None:
+        raw = _read_config_file(manifest_file)
+        # A file that exists but is unreadable (io_safe refusal) is still
+        # "present but unreadable" -> a parse error, not a silent absence.
+        parsed = (
+            parse_broker_manifest(raw)
+            if raw is not None
+            else BrokerParseError("broker.json could not be read")
+        )
+
+    if manifest_file is not None:
+        display_path = str(manifest_file)
+    elif candidates:
+        display_path = str(candidates[0])
+    else:
+        display_path = "broker.json"
+
+    home = env.get("HOME") or env.get("USERPROFILE")
+    findings = check_broker_posture(
+        subjects, parsed, present, manifest_path=display_path, home=home
+    )
+    if not findings:
+        return []
+    incomplete = isinstance(parsed, BrokerParseError)
+    return [
+        Server(
+            id=f"broker://{display_path}",
+            bind_addr=None,
+            port=None,
+            pid=None,
+            proc_name=None,
+            state=ServerState.DECLARED,
+            running=False,
+            inspection_incomplete=incomplete,
+            findings=tuple(findings),
+        )
+    ]
+
+
 def _audit_process_envs(
     osv_fetch: OsvFetch | None,
     agent_catalog: AgentCatalog | None = None,
@@ -563,6 +631,7 @@ def scan(
     inspect_token_stores: bool = False,
     inspect_process_env: bool = False,
     inspect_telemetry: bool = False,
+    inspect_broker: bool = False,
     now_epoch: int | None = None,
 ) -> Report:
     """Run a full localhost scan and return a deterministic Report.
@@ -588,6 +657,12 @@ def scan(
             mode, mtime) of the agent-host log surfaces named by the telemetry
             registry and grades logging health (Feature L). Default False reads
             nothing new; log contents are never read on either path.
+        inspect_broker: When True (opt-in), reads the documented Agent Trust
+            Broker manifest (``broker.json``) and grades whether privileged
+            servers are fronted by a sound broker (ATB_POSTURE_CHECK.md).
+            Assessment-only: it reads the manifest and never writes, enforces, or
+            contacts the broker. Default False reads nothing new and emits no
+            broker findings.
         now_epoch: "Now" in seconds since the epoch, supplied by ``cli`` so the
             token-store expiry and telemetry-staleness grades stay clock-free
             here. Consulted only when ``inspect_token_stores`` or
@@ -607,6 +682,10 @@ def scan(
 
     adapters = _adapters()
     servers: list[Server] = []
+    # (subject_id, decl) for every declared server, collected only when the
+    # opt-in broker audit needs them — the trust-engine identity the manifest's
+    # ``fronts`` list is joined against.
+    broker_subjects: list[tuple[str, ServerDecl]] = []
 
     # --- user-level (default) host configs ---
     for adapter in adapters:
@@ -615,7 +694,10 @@ def scan(
             raw = _read_config_file(path)
             if raw is None:
                 continue
-            servers.extend(_audit_config(adapter.parse(str(path), raw), fetch, secret_catalog))
+            parsed = adapter.parse(str(path), raw)
+            servers.extend(_audit_config(parsed, fetch, secret_catalog))
+            if inspect_broker:
+                broker_subjects.extend((f"{parsed.path}#{d.name}", d) for d in parsed.servers)
 
     # --- project-scoped host configs + .env ---
     for root in roots:
@@ -626,7 +708,10 @@ def scan(
                 raw = _read_config_file(path)
                 if raw is None:
                     continue
-                servers.extend(_audit_config(adapter.parse(str(path), raw), fetch, secret_catalog))
+                parsed = adapter.parse(str(path), raw)
+                servers.extend(_audit_config(parsed, fetch, secret_catalog))
+                if inspect_broker:
+                    broker_subjects.extend((f"{parsed.path}#{d.name}", d) for d in parsed.servers)
         env_path = root / ".env"
         if env_path.exists():
             raw = _read_config_file(env_path)
@@ -650,6 +735,10 @@ def scan(
     # --- agent-host logging health (opt-in; zero new reads by default) ---
     if inspect_telemetry:
         servers.extend(_audit_telemetry(adapters, system, env, now_epoch))
+
+    # --- Agent Trust Broker posture / governance (opt-in; zero new reads by default) ---
+    if inspect_broker:
+        servers.extend(_audit_broker(broker_subjects, system, env))
 
     # --- running-server discovery + exposure ---
     if enumerate_sockets:
