@@ -1,0 +1,58 @@
+{
+  "agent_markers": [
+    "mcp",
+    "modelcontextprotocol",
+    "model-context-protocol",
+    "claude",
+    "cursor",
+    "windsurf",
+    "cline",
+    "continue",
+    "zed"
+  ],
+  "entropy_threshold": 3.5,
+  "min_entropy_len": 20,
+  "provider_patterns": [
+    {
+      "label": "Anthropic API key",
+      "pattern": "sk-ant-[A-Za-z0-9_-]{20,}"
+    },
+    {
+      "label": "OpenAI API key",
+      "pattern": "sk-[A-Za-z0-9]{20,}"
+    },
+    {
+      "label": "GitHub token",
+      "pattern": "gh[pousr]_[A-Za-z0-9]{36,}"
+    },
+    {
+      "label": "GitHub fine-grained PAT",
+      "pattern": "github_pat_[A-Za-z0-9_]{50,}"
+    },
+    {
+      "label": "AWS access key id",
+      "pattern": "AKIA[0-9A-Z]{16}"
+    },
+    {
+      "label": "Google API key",
+      "pattern": "AIza[0-9A-Za-z_-]{35}"
+    },
+    {
+      "label": "Slack token",
+      "pattern": "xox[baprs]-[A-Za-z0-9-]{10,}"
+    },
+    {
+      "label": "Private key",
+      "pattern": "-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----"
+    },
+    {
+      "label": "Acme deploy token",
+      "pattern": "acme-[0-9]{10}"
+    }
+  ],
+  "schema_version": "1.0",
+  "secret_name_pattern": "(API[_-]?KEY|SECRET|TOKEN|PASSWORD|PASSWD|ACCESS[_-]?KEY|PRIVATE[_-]?KEY)",
+  "token_store_templates": [
+    "~/.claude/.credentials.json"
+  ]
+}
