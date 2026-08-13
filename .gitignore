@@ -29,3 +29,7 @@ build/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# mcpscan's own on-disk artifacts (never commit a scan of the dev machine)
+.mcpscan-baseline.json
+.mcpscan-accept.json

@@ -120,6 +120,16 @@ _IMPAIR_LOGGING = FrameworkRef(
 )
 _CIS_AUDIT_LOG = FrameworkRef(Framework.CIS, "Control 8", "Audit Log Management")
 
+# Agent Trust Broker posture (governance tier; docs/proposals/ATB_POSTURE_CHECK.md).
+# A privileged tool with no broker in front of it is a missing reference monitor
+# for a privileged action (T1548, Abuse Elevation Control Mechanism); an
+# unverified tool manifest reopens tool-description poisoning — the same LLM
+# prompt-injection family the tool-integrity checks map to; a broker whose
+# posture cannot be confirmed (audit off, or a manifest that won't parse) is a
+# defense left un-operative (T1562, Impair Defenses). Every row also cites NIST
+# AI RMF GOVERN — governance is the honest home for the broker family.
+_IMPAIR_DEFENSES = FrameworkRef(Framework.ATTACK, "T1562", "Impair Defenses")
+
 # --- the mapping table --------------------------------------------------------
 # Key: the finding id a check emits. Value: its citations, strongest-first.
 MAPPINGS: dict[str, tuple[FrameworkRef, ...]] = {
@@ -185,6 +195,18 @@ MAPPINGS: dict[str, tuple[FrameworkRef, ...]] = {
     "TELEMETRY-ABSENT": (_IMPAIR_LOGGING, _RMF_MANAGE, _CIS_AUDIT_LOG),
     "TELEMETRY-STALE": (_IMPAIR_LOGGING, _RMF_MANAGE, _CIS_AUDIT_LOG),
     "TELEMETRY-PERMS": (_IMPAIR_LOGGING, _RMF_GOVERN, _CIS_AUDIT_LOG, _CIS_DATA),
+    # Agent Trust Broker posture / governance (ATB_POSTURE_CHECK.md)
+    "BROKER-ABSENT": (_ELEVATION, _LLM_AGENCY, _RMF_GOVERN, _CIS_ACCESS),
+    "BROKER-MANIFEST-UNVERIFIED": (
+        _IMPERSONATION,
+        _ATLAS_PROMPT_INJECTION,
+        _LLM_PROMPT_INJECTION,
+        _RMF_GOVERN,
+        _CIS_APPSEC,
+    ),
+    "BROKER-NO-AUDIT": (_IMPAIR_LOGGING, _RMF_GOVERN, _CIS_AUDIT_LOG),
+    "BROKER-ALLOWLIST-PERMISSIVE": (_ELEVATION, _LLM_AGENCY, _RMF_GOVERN, _CIS_ACCESS),
+    "BROKER-PARSE-ERROR": (_IMPAIR_DEFENSES, _RMF_GOVERN, _CIS_CONFIG),
 }
 
 

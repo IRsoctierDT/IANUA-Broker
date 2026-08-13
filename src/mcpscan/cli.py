@@ -166,6 +166,18 @@ def build_parser() -> argparse.ArgumentParser:
             "(reads nothing extra)."
         ),
     )
+    parser.add_argument(
+        "--inspect-broker",
+        action="store_true",
+        help=(
+            "Read the documented Agent Trust Broker manifest (broker.json) and "
+            "grade whether privileged servers are fronted by a sound broker "
+            "(present, least-privilege allowlist, signed tool manifests, audit "
+            "log on). Assessment-only: reads the manifest, never writes or "
+            "contacts the broker. The manifest holds no secrets. Off by default "
+            "(reads nothing extra)."
+        ),
+    )
 
     emit = parser.add_argument_group(
         "emit", "Alert emission (used with 'scan' / 'diff'): push a REDACTED summary to a sink."
@@ -908,6 +920,13 @@ def _run_scan(args: argparse.Namespace) -> int:
             "permissions, mtime) to grade logging health; no log contents are read.",
             file=sys.stderr,
         )
+    if args.inspect_broker:
+        print(
+            "note: --inspect-broker reads the Agent Trust Broker manifest "
+            "(broker.json) to grade broker posture; it is assessment-only and "
+            "never writes to or contacts the broker.",
+            file=sys.stderr,
+        )
 
     report = scan(
         roots=args.root,
@@ -915,6 +934,7 @@ def _run_scan(args: argparse.Namespace) -> int:
         inspect_token_stores=args.inspect_token_stores,
         inspect_process_env=args.inspect_process_env,
         inspect_telemetry=args.inspect_telemetry,
+        inspect_broker=args.inspect_broker,
         now_epoch=now_epoch,
     )
     report = _apply_acceptance_ledger(report, args.root)
