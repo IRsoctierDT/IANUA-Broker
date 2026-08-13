@@ -15,7 +15,7 @@ def render_terminal_trust(report: TrustReport, opts: RenderOptions) -> str:
     n_risky = len(report.risky)
     lines = [
         (
-            f"AI Agentic MCPscan — agent trust: {len(report.profiles)} tool(s), "
+            f"IANUA-Broker — agent trust: {len(report.profiles)} tool(s), "
             f"overall {report.overall_grade}; {n_risky} with risk relationship(s)"
         )
     ]

@@ -61,9 +61,9 @@ def render_html(report: Report, opts: RenderOptions | None = None) -> str:
     parts.append("<!doctype html>")
     parts.append('<html lang="en"><head><meta charset="utf-8">')
     parts.append('<meta name="viewport" content="width=device-width, initial-scale=1">')
-    parts.append("<title>AI Agentic MCPscan report</title>")
+    parts.append("<title>IANUA-Broker report</title>")
     parts.append(f"<style>{_STYLE}</style></head><body>")
-    parts.append("<h1>AI Agentic MCPscan</h1>")
+    parts.append("<h1>IANUA-Broker</h1>")
     parts.append(f"<p>Overall posture: {_grade_badge(report.overall_grade)}</p>")
 
     if report.dimension_grades:
@@ -107,8 +107,7 @@ def render_html(report: Report, opts: RenderOptions | None = None) -> str:
         parts.append("</section>")
 
     parts.append(
-        "<footer>Generated locally and offline by AI Agentic MCPscan. "
-        "No data left this machine.</footer>"
+        "<footer>Generated locally and offline by IANUA-Broker. No data left this machine.</footer>"
     )
     parts.append("</body></html>")
     return "\n".join(parts) + "\n"

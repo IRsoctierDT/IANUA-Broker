@@ -41,7 +41,7 @@ SARIF_SCHEMA = (
     "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json"
 )
 SARIF_VERSION = "2.1.0"
-TOOL_NAME = "ai-agentic-mcpscan"
+TOOL_NAME = "ianua-broker"
 INFORMATION_URI = "https://github.com/IRsoctierDT/IANUA-Broker"
 
 # Severity -> SARIF result level (error | warning | note).

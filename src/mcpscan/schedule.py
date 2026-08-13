@@ -146,7 +146,7 @@ def systemd_units(plan: SchedulePlan) -> tuple[str, str]:
     command = _posix_command(plan)
     service = (
         "[Unit]\n"
-        "Description=AI Agentic MCPscan posture scan + drift check\n"
+        "Description=IANUA-Broker posture scan + drift check\n"
         "\n"
         "[Service]\n"
         "Type=oneshot\n"
@@ -154,7 +154,7 @@ def systemd_units(plan: SchedulePlan) -> tuple[str, str]:
     )
     timer = (
         "[Unit]\n"
-        f"Description=Run AI Agentic MCPscan on a {plan.cadence.value} cadence\n"
+        f"Description=Run IANUA-Broker on a {plan.cadence.value} cadence\n"
         "\n"
         "[Timer]\n"
         f"OnCalendar={_SYSTEMD_ONCALENDAR[plan.cadence]}\n"
@@ -201,7 +201,7 @@ def windows_task_xml(plan: SchedulePlan) -> str:
     root = ET.Element("Task", {"version": "1.2", "xmlns": _TASK_NS})
 
     reg = ET.SubElement(root, "RegistrationInfo")
-    ET.SubElement(reg, "Description").text = "AI Agentic MCPscan scheduled posture scan + diff"
+    ET.SubElement(reg, "Description").text = "IANUA-Broker scheduled posture scan + diff"
 
     triggers = ET.SubElement(root, "Triggers")
     _windows_trigger(triggers, plan.cadence)

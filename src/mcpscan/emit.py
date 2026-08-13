@@ -50,7 +50,7 @@ from .drift.model import DriftReport
 # the scan/trust/drift schemas are unchanged, and this is a brand-new object.
 EMIT_SCHEMA_VERSION = "1.0"
 
-TOOL_NAME = "ai-agentic-mcpscan"
+TOOL_NAME = "ianua-broker"
 
 # Short by design: an alert channel must fail fast, not block a scan on a hung
 # endpoint. The scan has already rendered by the time a sink runs.
