@@ -71,7 +71,7 @@ ports            = [3000, 8000, 8080]        # explicit; no default port sweep
     **no Python crypto dependency**. Works out of the box.
   - **`scheme = "ed25519"` (optional)** — verified with a vetted asymmetric
     library, installed only via the `[crypto]` extra
-    (`pip install ai-agentic-mcpscan[crypto]`). For orgs standardizing on
+    (`pip install ianua-broker[crypto]`). For orgs standardizing on
     library-based signing. Absent the extra, an `ed25519` manifest is refused
     with a clear "install the crypto extra" message — never silently downgraded.
 
