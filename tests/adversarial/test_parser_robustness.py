@@ -83,6 +83,25 @@ MALFORMED: tuple[str, ...] = (
 )
 
 
+# Payloads are passed as *factories*, never as values, and every parametrization
+# over them carries an explicit id. A 400 KB string used as a parameter becomes a
+# 400 KB pytest node id: it is reported, matched, and written out on every line
+# that names the test. That turned a 10-second suite into an 18-minute one on
+# Windows CI and errored the run outright — a battery about hostile input should
+# not be a denial of service on its own test runner.
+HOSTILE_DOCUMENTS: tuple[Callable[[], str], ...] = (
+    *[(lambda text=text: text) for text in MALFORMED],
+    deep_json,
+    deep_object_json,
+)
+DOCUMENT_IDS: tuple[str, ...] = (
+    # Short but self-describing: a failure names the payload, not an index.
+    *[repr(text[:24]) for text in MALFORMED],
+    "deep-array",
+    "deep-object",
+)
+
+
 @pytest.mark.parametrize("adapter", ADAPTERS, ids=lambda a: a.name)
 @pytest.mark.parametrize("raw", MALFORMED, ids=lambda s: repr(s[:24]))
 def test_adapter_never_raises_on_malformed_config(adapter: HostAdapter, raw: str) -> None:
@@ -122,27 +141,27 @@ def test_adapter_survives_deeply_nested_config(
         ("lan policy", lambda raw: load_policy(raw.encode())),
     ],
 )
-@pytest.mark.parametrize(
-    "raw", [*MALFORMED, deep_json(), deep_object_json()], ids=lambda s: repr(s[:20])
-)
-def test_total_parsers_never_raise(name: str, parse: Callable[[str], object], raw: str) -> None:
+@pytest.mark.parametrize("make_raw", HOSTILE_DOCUMENTS, ids=DOCUMENT_IDS)
+def test_total_parsers_never_raise(
+    name: str, parse: Callable[[str], object], make_raw: Callable[[], str]
+) -> None:
     """Parsers whose contract is "returns an error object" must never raise.
 
     These are the fail-closed boundaries: each returns a typed error rather than
     raising, so a caller that only catches its own error type stays correct.
     """
-    parse(raw)  # the assertion IS "this does not raise"
+    parse(make_raw())  # the assertion IS "this does not raise"
 
 
-@pytest.mark.parametrize("raw", [deep_json(), deep_object_json(), *MALFORMED])
-def test_baseline_load_refuses_without_crashing(raw: str) -> None:
+@pytest.mark.parametrize("make_raw", HOSTILE_DOCUMENTS, ids=DOCUMENT_IDS)
+def test_baseline_load_refuses_without_crashing(make_raw: Callable[[], str]) -> None:
     """``load_baseline`` is the one parser that raises — but only ``BaselineError``.
 
     A tampered baseline in CI must produce the typed refusal every caller
     handles, never an unhandled ``RecursionError`` that aborts the diff.
     """
     with pytest.raises(BaselineError):
-        load_baseline(raw)
+        load_baseline(make_raw())
 
 
 def test_error_objects_are_the_documented_types() -> None:
