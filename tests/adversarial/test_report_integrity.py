@@ -180,6 +180,22 @@ def test_html_report_has_no_injected_markup(payload: str) -> None:
     assert "<img" not in lowered
 
 
+@pytest.mark.parametrize("payload", RENDER_PAYLOADS, ids=lambda p: repr(p[:20]))
+def test_html_report_is_inert_not_merely_escaped(payload: str) -> None:
+    """Escaping markup is not enough: browsers honour bidi and zero-width.
+
+    ``html.escape`` stops script injection and stops there. A server name
+    carrying U+202E still reorders the text a reviewer reads — in the artifact
+    most likely to be forwarded to one — and a zero-width joiner still hides
+    characters inside a value the report is warning about. The HTML renderer
+    therefore defangs before it escapes, so it and the terminal agree on what
+    "inert" means.
+    """
+    out = render_html(_poisoned_report(payload), RenderOptions())
+    stray = set(out) & (FORBIDDEN_ON_A_TERMINAL - {"\n"})
+    assert not stray, f"HTML report carries {stray!r} from an attacker-chosen string"
+
+
 def test_html_report_stays_self_contained_under_attack() -> None:
     """ADR-8/NFR-SEC1: no remote reference can be injected into the report.
 

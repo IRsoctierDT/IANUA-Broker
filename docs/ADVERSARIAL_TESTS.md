@@ -74,9 +74,11 @@ All are fixed in the same change as the battery.
 | 8 | **systemd unit-file injection** via a newline in a scanned path | `shlex.quote` protects a *shell*; systemd ends the `ExecStart` directive at the newline and reads the rest as directives, so `ExecStartPost=` was honoured | `ScheduleError` refusal for control characters; the CLI reports it and exits 2 |
 | 9 | Continue's YAML adapter raised a bare `ValueError` | PyYAML's scalar constructors raise `ValueError`, not `YAMLError` — an integer past CPython's 4300-digit limit escaped the handler | Catch `ValueError` alongside `YAMLError` |
 
-Two invariants were attacked and **held** with no change needed: HTML escaping
-(no XSS survived any payload) and the JSONC comment stripper's string-awareness
-(no parser differential across 13 hand-picked cases).
+| 10 | The **HTML report was escaped but not inert** | `html.escape` stops script injection and stops there — a browser still honours a bidi override or a zero-width joiner, so a server name could reorder the text a reviewer reads in the artifact most likely to be forwarded to one | `_safe()` defangs via `inert_text` *before* escaping, so the HTML and terminal renderers agree on what "inert" means |
+
+Two invariants were attacked and **held** with no change needed: HTML *markup*
+escaping (no XSS survived any payload) and the JSONC comment stripper's
+string-awareness (no parser differential across 13 hand-picked cases).
 
 ## Scope statements
 
