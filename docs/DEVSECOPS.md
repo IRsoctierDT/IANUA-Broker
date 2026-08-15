@@ -289,6 +289,7 @@ Current layout (extended as the platform grows):
 │   └── dependabot.yml
 ├── src/mcpscan/           # package (pure core + I/O edges)
 ├── tests/                 # pytest suite (+ conftest fixtures)
+│   └── adversarial/       # the tool-as-target battery (docs/ADVERSARIAL_TESTS.md)
 ├── docs/                  # SPEC, ARCHITECTURE, DECISIONS, this file, site
 ├── CHANGELOG.md  README.md  LICENSE  NOTICE
 ├── CONTRIBUTING.md  CODE_OF_CONDUCT.md  SECURITY.md

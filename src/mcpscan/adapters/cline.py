@@ -12,11 +12,10 @@ Never raises on bad input — malformed JSON becomes a ``ParsedConfig`` with
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from pathlib import PurePath
 
-from .base import HostAdapter, ParsedConfig, parse_mcp_servers
+from .base import HostAdapter, ParsedConfig, decode_config, parse_mcp_servers
 from .paths import cline_config_candidates
 
 
@@ -29,10 +28,9 @@ class ClineAdapter(HostAdapter):
         return cline_config_candidates(system, env)
 
     def parse(self, path: str, raw: str) -> ParsedConfig:
-        try:
-            data = json.loads(raw)
-        except (json.JSONDecodeError, ValueError) as exc:
-            return ParsedConfig(path=path, parse_error=f"invalid JSON: {exc}")
+        data, error = decode_config(raw)
+        if error is not None:
+            return ParsedConfig(path=path, parse_error=error)
 
         if not isinstance(data, dict):
             return ParsedConfig(path=path, parse_error="config root is not an object")

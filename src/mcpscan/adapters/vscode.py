@@ -13,11 +13,10 @@ on bad input — malformed JSON becomes a ``ParsedConfig`` with ``parse_error``.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from pathlib import Path, PurePath
 
-from .base import HostAdapter, ParsedConfig, parse_named_servers
+from .base import HostAdapter, ParsedConfig, decode_config, parse_named_servers
 from .jsonc import loads_jsonc
 from .paths import vscode_config_candidates
 
@@ -34,11 +33,10 @@ class VSCodeAdapter(HostAdapter):
         return [project_root / ".vscode" / "mcp.json"]
 
     def parse(self, path: str, raw: str) -> ParsedConfig:
-        try:
-            # mcp.json is JSONC (VS Code allows comments + trailing commas).
-            data = loads_jsonc(raw)
-        except (json.JSONDecodeError, ValueError) as exc:
-            return ParsedConfig(path=path, parse_error=f"invalid JSON: {exc}")
+        # mcp.json is JSONC (VS Code allows comments + trailing commas).
+        data, error = decode_config(raw, loader=loads_jsonc)
+        if error is not None:
+            return ParsedConfig(path=path, parse_error=error)
 
         if not isinstance(data, dict):
             return ParsedConfig(path=path, parse_error="config root is not an object")

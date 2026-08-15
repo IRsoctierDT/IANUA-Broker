@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 
+from ..report import inert_text
 from .model import ChangeType, Direction, DriftEntry, DriftReport
 from .staleness import StalenessVerdict
 
@@ -73,14 +74,16 @@ def render_terminal_drift(report: DriftReport, *, staleness: StalenessVerdict | 
     for entry in report.entries:
         mark = _CHANGE_MARK[entry.change]
         label = _DIRECTION_LABEL[entry.direction]
-        lines.append(f"  {mark} [{label:11}] [{_cause_tag(entry)}] {entry.summary}")
+        lines.append(f"  {mark} [{label:11}] [{_cause_tag(entry)}] {inert_text(entry.summary)}")
         if entry.change is ChangeType.CHANGED:
             before = dict(entry.detail_before)
             after = dict(entry.detail_after)
             for field_name in sorted(set(before) | set(after)):
                 b, a = before.get(field_name, "∅"), after.get(field_name, "∅")
                 if b != a:
-                    lines.append(f"      {field_name}: {b} → {a}")
+                    lines.append(
+                        f"      {inert_text(field_name)}: {inert_text(b)} → {inert_text(a)}"
+                    )
     return "\n".join(lines) + "\n"
 
 

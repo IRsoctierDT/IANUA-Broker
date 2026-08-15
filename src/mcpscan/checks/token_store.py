@@ -119,12 +119,18 @@ def decode_store(raw: str) -> TokenInfo | None:
         return info
     try:
         data = json.loads(raw)
+        for value in _iter_strings(data):
+            info = decode_jwt_unverified(value)
+            if info is not None:
+                return info
     except (ValueError, json.JSONDecodeError):
         return None
-    for value in _iter_strings(data):
-        info = decode_jwt_unverified(value)
-        if info is not None:
-            return info
+    except RecursionError:
+        # Deeply-nested JSON overflows either the decoder or the recursive
+        # ``_iter_strings`` walk — both are inside the guard. RecursionError is a
+        # RuntimeError, not a ValueError, so "malformed input yields None rather
+        # than raising" needs it named explicitly.
+        return None
     return None
 
 

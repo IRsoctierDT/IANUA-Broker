@@ -97,6 +97,13 @@ def parse_ledger(text: str, source: str) -> LedgerLoad:
         return LedgerLoad(
             warnings=(f"ignoring malformed acceptance ledger {source}: not valid JSON",)
         )
+    except RecursionError:
+        # Deeply-nested JSON overflows the decoder well under the 1 MB cap.
+        # RecursionError is a RuntimeError, not a ValueError — a ledger dropped
+        # in a scanned root must never crash the scan (NFR-S3).
+        return LedgerLoad(
+            warnings=(f"ignoring malformed acceptance ledger {source}: nesting is too deep",)
+        )
     if not isinstance(data, dict) or not isinstance(data.get("acceptances"), list):
         return LedgerLoad(
             warnings=(

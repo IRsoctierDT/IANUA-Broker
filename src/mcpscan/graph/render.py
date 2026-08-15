@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 
-from ..report import RenderOptions, display_path
+from ..report import RenderOptions, display_path, inert_text
 from .model import AttackGraph, Node, NodeKind
 from .paths import MAX_PATHS
 
@@ -68,8 +68,8 @@ def render_terminal_graph(graph: AttackGraph, opts: RenderOptions) -> str:
 
     for path in graph.paths:
         lines.append("")
-        lines.append(f"[{path.severity.value.upper()}] {path.summary}")
-        lines.append(f"    why: {path.rationale}")
+        lines.append(f"[{path.severity.value.upper()}] {inert_text(path.summary)}")
+        lines.append(f"    why: {inert_text(path.rationale)}")
 
     if graph.truncated:
         lines.append("")

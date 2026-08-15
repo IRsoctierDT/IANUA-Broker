@@ -47,6 +47,17 @@ class ContinueAdapter(HostAdapter):
             data = yaml.safe_load(raw)  # safe_load: never constructs arbitrary objects
         except yaml.YAMLError as exc:
             return ParsedConfig(path=path, parse_error=f"invalid YAML: {exc}")
+        except ValueError as exc:
+            # Not every PyYAML failure is a YAMLError: the scalar constructors
+            # raise plain ValueError, e.g. an integer past CPython's 4300-digit
+            # int/str conversion limit. Hostile input, not a crash (NFR-S3).
+            return ParsedConfig(path=path, parse_error=f"invalid YAML value: {exc}")
+        except RecursionError:
+            # Deeply-nested YAML (flow sequences under the io_safe size cap)
+            # overflows the parser's recursion. RecursionError is a RuntimeError,
+            # not a YAMLError, so it needs its own guard — the same hostile-input
+            # class ``base.decode_config`` folds in for the JSON adapters.
+            return ParsedConfig(path=path, parse_error="config nesting is too deep to parse")
 
         if not isinstance(data, dict):
             return ParsedConfig(path=path, parse_error="config root is not a mapping")

@@ -30,7 +30,12 @@ from ..domain import Dimension, Finding, Location, Severity
 # nothing (or reorder surrounding text) for a human but are ordinary codepoints
 # to a model reading the config — the classic "hidden instruction" primitive.
 # Curated to high-confidence controls only so legitimate text never matches.
-_HIDDEN_CODEPOINTS: frozenset[int] = frozenset(
+#
+# Public because this is the tool's single catalog of "invisible to a reader":
+# ``report.inert_text`` neutralizes exactly these codepoints on the way out to a
+# terminal and ``lan.sanitize`` strips them from remote responses, so what the
+# scanner *flags* as hidden and what it *renders* can never drift apart.
+HIDDEN_CODEPOINTS: frozenset[int] = frozenset(
     {
         0x200B,  # ZERO WIDTH SPACE
         0x200C,  # ZERO WIDTH NON-JOINER
@@ -65,7 +70,7 @@ _INJECTION_PHRASES: tuple[str, ...] = (
 
 def hidden_unicode_codepoints(text: str) -> tuple[int, ...]:
     """Sorted, de-duplicated invisible/bidi control codepoints present in ``text``."""
-    return tuple(sorted({ord(ch) for ch in text if ord(ch) in _HIDDEN_CODEPOINTS}))
+    return tuple(sorted({ord(ch) for ch in text if ord(ch) in HIDDEN_CODEPOINTS}))
 
 
 def injection_phrase(text: str) -> str | None:
