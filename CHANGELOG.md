@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.5.1...ianua-broker-v1.5.2) (2026-08-14)
+
+
+### Documentation
+
+* **readme:** document 'mcpscan schedule'; fix stale and incorrect claims ([#100](https://github.com/IRsoctierDT/IANUA-Broker/issues/100)) ([02e14ce](https://github.com/IRsoctierDT/IANUA-Broker/commit/02e14cead76632d2f366c56775153e49fff0540a))
+
 ## [1.5.1](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.5.0...ianua-broker-v1.5.1) (2026-08-13)
 
 
