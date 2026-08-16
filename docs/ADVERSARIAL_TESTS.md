@@ -117,6 +117,11 @@ future narrowing of a compensating control is caught:
   actually separates "slow machine" from "accidental quadratic".
 - **Liveness over patience.** A potentially-blocking read runs on a daemon thread
   with a deadline, so a hang fails the test instead of stalling the suite.
+- **Hermetic, and guarded.** The battery must not touch the host's network
+  state: an autouse fixture stubs socket discovery at every module that binds
+  `enumerate_listening`, and a test asserts that list still covers the source
+  tree. Missing a binding site is not a test failure — the only symptom is CI
+  time — so it needs a guard rather than vigilance.
 - **Payloads as escapes.** Invisible and bidirectional characters are written as
   `"\u202e"`, never as literals — a source file carrying real bidi overrides is
   the attack it is testing for.

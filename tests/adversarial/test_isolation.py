@@ -328,3 +328,37 @@ def test_a_traversal_path_in_a_config_does_not_escape_the_root(tmp_path: Path) -
     for server in report.servers:
         for finding in server.findings:
             assert finding.location.path.startswith(str(root))
+
+
+def test_every_socket_enumeration_binding_site_is_stubbed() -> None:
+    """Guard: a new ``from … import enumerate_listening`` must be stubbed too.
+
+    The battery's hermeticity rests on the autouse fixture in this package's
+    ``conftest``, and that fixture patches *binding sites* — a module that did
+    ``from ..discovery.sockets import enumerate_listening`` holds its own
+    reference, so patching the source module would not reach it.
+
+    Missing one is not a test failure, which is exactly why it needs a guard:
+    ``inventory.collect`` was missed and the only symptom was Windows CI going
+    from 19 seconds to 18 minutes, because that path enumerates the whole TCP
+    table and then loopback-probes every socket it finds.
+    """
+    import ast
+    from pathlib import Path as _Path
+
+    from adversarial.conftest import _ENUMERATION_BINDING_SITES
+
+    src = _Path(__file__).resolve().parents[2] / "src" / "mcpscan"
+    stubbed = {module.__name__ for module in _ENUMERATION_BINDING_SITES}
+    binders: set[str] = set()
+    for path in src.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and any(
+                alias.name == "enumerate_listening" for alias in node.names
+            ):
+                binders.add(".".join(path.relative_to(src.parent).with_suffix("").parts))
+    assert binders <= stubbed, (
+        "module(s) bind enumerate_listening but are not stubbed by the battery's "
+        f"conftest: {sorted(binders - stubbed)} — add them to _ENUMERATION_BINDING_SITES"
+    )

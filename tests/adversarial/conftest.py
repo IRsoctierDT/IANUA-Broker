@@ -34,7 +34,17 @@ from collections.abc import Iterator
 import pytest
 
 import mcpscan.engine as engine_mod
+import mcpscan.inventory.collect as inventory_collect_mod
 from mcpscan.discovery.sockets import EnumerationResult
+
+#: Every module that binds ``enumerate_listening`` into its own namespace with a
+#: ``from … import`` — patching the source module would not reach these, because
+#: the name is already bound by the time a test runs. ``inventory.collect`` is
+#: the one that matters most in practice: the ``inventory`` and ``graph``
+#: sub-commands go through it rather than through the engine, and it enumerates
+#: *and then loopback-probes* each socket it finds, so a missed binding costs a
+#: full TCP-table walk plus a per-endpoint timeout.
+_ENUMERATION_BINDING_SITES = (engine_mod, inventory_collect_mod)
 
 
 @pytest.fixture(autouse=True)
@@ -43,6 +53,10 @@ def _no_socket_enumeration(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
     Autouse and package-scoped: a new module cannot forget it and reintroduce a
     dependency on the host's network state.
+
+    With no sockets discovered there is also nothing to fingerprint, so this one
+    stub closes the probe path too.
     """
-    monkeypatch.setattr(engine_mod, "enumerate_listening", lambda: EnumerationResult(sockets=()))
+    for module in _ENUMERATION_BINDING_SITES:
+        monkeypatch.setattr(module, "enumerate_listening", lambda: EnumerationResult(sockets=()))
     yield
