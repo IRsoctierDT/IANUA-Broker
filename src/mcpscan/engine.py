@@ -34,6 +34,7 @@ from .checks.broker import (
     check_broker_posture,
     parse_broker_manifest,
 )
+from .checks.config_health import check_config_readable
 from .checks.exposure import check_socket_exposure
 from .checks.pinning import (
     PackageSpec,
@@ -325,6 +326,43 @@ def _read_config_file(path: Path) -> str | None:
         return safe_read_text(path, root=path.parent)
     except SafeReadError:
         return None
+
+
+def _read_config_or_failure(path: Path) -> tuple[str | None, str | None]:
+    """Read a config, distinguishing "absent" from "present but unreadable".
+
+    Returns ``(text, failure)``. A file that simply does not exist is ``(None,
+    None)`` — the common case for the candidate paths of a host that is not
+    installed, and not something to report. A file that *is* there but refused by
+    ``io_safe`` (oversized, symlinked outside its directory, a planted FIFO,
+    permission-denied) returns its refusal as ``failure`` so the caller can
+    surface a ``CONFIG-UNREADABLE`` finding instead of skipping in silence.
+
+    ``is_symlink()`` is checked alongside ``exists()`` because ``exists()``
+    follows links: a dangling or looping symlink is present on disk but reports
+    False, and that is exactly the shape a planted config takes.
+    """
+    try:
+        return safe_read_text(path, root=path.parent), None
+    except SafeReadError as exc:
+        if path.is_symlink() or path.exists():
+            return None, str(exc)
+        return None, None
+
+
+def _config_failure_server(path: str, failure: str) -> Server:
+    """A synthetic server carrying the un-inspected-config finding for ``path``."""
+    return Server(
+        id=f"config://{path}",
+        bind_addr=None,
+        port=None,
+        pid=None,
+        proc_name=None,
+        state=ServerState.DECLARED,
+        running=False,
+        inspection_incomplete=True,
+        findings=tuple(check_config_readable(path, failure)),
+    )
 
 
 def _audit_token_stores(
@@ -691,10 +729,17 @@ def scan(
     for adapter in adapters:
         for cand in adapter.default_config_paths(system, env):
             path = Path(str(cand))
-            raw = _read_config_file(path)
+            raw, failure = _read_config_or_failure(path)
+            if failure is not None:
+                # Present but un-inspectable: reported, never skipped in silence.
+                servers.append(_config_failure_server(str(path), failure))
+                continue
             if raw is None:
                 continue
             parsed = adapter.parse(str(path), raw)
+            if parsed.parse_error is not None:
+                servers.append(_config_failure_server(parsed.path, parsed.parse_error))
+                continue
             servers.extend(_audit_config(parsed, fetch, secret_catalog))
             if inspect_broker:
                 broker_subjects.extend((f"{parsed.path}#{d.name}", d) for d in parsed.servers)
@@ -703,26 +748,31 @@ def scan(
     for root in roots:
         for adapter in adapters:
             for path in adapter.project_config_paths(root):
-                if not path.exists():
+                raw, failure = _read_config_or_failure(path)
+                if failure is not None:
+                    servers.append(_config_failure_server(str(path), failure))
                     continue
-                raw = _read_config_file(path)
                 if raw is None:
                     continue
                 parsed = adapter.parse(str(path), raw)
+                if parsed.parse_error is not None:
+                    servers.append(_config_failure_server(parsed.path, parsed.parse_error))
+                    continue
                 servers.extend(_audit_config(parsed, fetch, secret_catalog))
                 if inspect_broker:
                     broker_subjects.extend((f"{parsed.path}#{d.name}", d) for d in parsed.servers)
         env_path = root / ".env"
-        if env_path.exists():
-            raw = _read_config_file(env_path)
-            if raw is not None:
-                env_file = parse_env_text(
-                    str(env_path),
-                    raw,
-                    mode=_posix_file_mode(env_path),
-                    git_tracked=_git_tracked(env_path),
-                )
-                servers.append(_audit_env_file(env_file, secret_catalog))
+        raw, failure = _read_config_or_failure(env_path)
+        if failure is not None:
+            servers.append(_config_failure_server(str(env_path), failure))
+        elif raw is not None:
+            env_file = parse_env_text(
+                str(env_path),
+                raw,
+                mode=_posix_file_mode(env_path),
+                git_tracked=_git_tracked(env_path),
+            )
+            servers.append(_audit_env_file(env_file, secret_catalog))
 
     # --- credential/token stores at rest (opt-in; zero new reads by default) ---
     if inspect_token_stores:

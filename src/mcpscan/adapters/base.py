@@ -9,8 +9,9 @@ or checks. Parsed types are frozen so the audit operates on immutable data.
 
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath
 
@@ -35,6 +36,35 @@ class ParsedConfig:
     allow_permissions: tuple[str, ...] = ()
     parse_error: str | None = None
     extra: Mapping[str, object] = field(default_factory=dict)
+
+
+def decode_config(
+    raw: str, *, loader: Callable[[str], object] = json.loads
+) -> tuple[object | None, str | None]:
+    """Decode config text into ``(data, parse_error)`` — never raises (NFR-S3).
+
+    The shared decode boundary every JSON/JSONC host adapter goes through, so the
+    hostile-input contract on :meth:`HostAdapter.parse` ("must never raise") is
+    upheld in one place rather than re-derived per adapter. ``loader`` selects the
+    decoder (``json.loads``, or ``loads_jsonc`` for the editors that allow
+    comments).
+
+    Two failure classes are folded into ``parse_error``:
+
+    - malformed JSON (``JSONDecodeError``/``ValueError``);
+    - **deeply-nested** JSON, which overflows the decoder's recursion long before
+      the ``io_safe`` size cap is reached. ``RecursionError`` is a
+      ``RuntimeError``, not a ``ValueError``, so it needs its own guard — a
+      planted ``[[[[…]]]]`` config would otherwise crash the whole scan instead
+      of degrading to one parse-error finding (same stance as
+      ``checks.broker.parse_broker_manifest``).
+    """
+    try:
+        return loader(raw), None
+    except (json.JSONDecodeError, ValueError) as exc:
+        return None, f"invalid JSON: {exc}"
+    except RecursionError:
+        return None, "config nesting is too deep to parse"
 
 
 def coerce_args(value: object) -> tuple[str, ...]:

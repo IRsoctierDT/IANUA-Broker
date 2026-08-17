@@ -419,6 +419,7 @@ model: [`docs/proposals/LAN_SCANNING.md`](docs/proposals/LAN_SCANNING.md).
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component model, dependency direction, trust boundaries. |
 | [docs/BACKLOG.md](docs/BACKLOG.md) | Sprint-tagged tickets + requirement→ticket traceability. |
 | [docs/SECURITY_SIGNOFF.md](docs/SECURITY_SIGNOFF.md) | Threat-model verification matrix (security sign-off). |
+| [docs/ADVERSARIAL_TESTS.md](docs/ADVERSARIAL_TESTS.md) | Adversarial test battery — the tool under attack, and what it found. |
 | [docs/agents/](docs/agents/README.md) | MCP Sentinel agent suite — governed agent roles, registry, and operating model. |
 | [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) | Reporting policy · contributor guide. |
 
@@ -434,6 +435,14 @@ Continue), SARIF 2.1.0 + a GitHub code-scanning workflow, opt-in `--fix`,
 [dogfood harness](tools/dogfood/README.md) that gates every check against a
 clean+messy corpus across all hosts (0 false positives / 0 false negatives, run
 in CI).
+
+Because a scanner's own inputs are attacker-authored — a `.mcp.json` inside a
+repository you just cloned is written by whoever wrote the repository — an
+[adversarial test battery](docs/ADVERSARIAL_TESTS.md) runs the tool as the
+*target*: hostile configs, planted FIFOs and symlink loops, terminal-escape and
+markup injection, evasion attempts, and resource exhaustion, all asserted
+against four invariants (no crash, no silence, no forged report, no leak or
+egress).
 
 The CLI surface, JSON report schema, and check ids are covered by semver:
 breaking changes to any of them mean a major version bump.

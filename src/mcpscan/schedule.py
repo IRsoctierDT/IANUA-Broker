@@ -40,6 +40,10 @@ SERVICE_STEM = "mcpscan"
 _WINDOWS_START_BOUNDARY = "2026-01-01T03:00:00"
 
 
+class ScheduleError(ValueError):
+    """A plan that cannot be rendered into a valid unit for this OS."""
+
+
 class Cadence(Enum):
     """How often the scheduled scan+diff runs."""
 
@@ -172,11 +176,28 @@ def systemd_units(plan: SchedulePlan) -> tuple[str, str]:
     ``$``-variable substitution (systemd.service(5)) — so every literal ``%`` and
     ``$`` in the command — a root, the baseline, or the baked ``PYTHONPATH`` — is
     written as ``%%`` / ``$$``; otherwise a valid specifier silently rewrites the
-    path and an invalid one drops the ``ExecStart`` line entirely. (A raw newline
-    in a path cannot be represented in a unit file line at all; such paths need
-    the launchd/Windows channels or an installed mcpscan.)
+    path and an invalid one drops the ``ExecStart`` line entirely.
+
+    A unit file is line-structured, so a path carrying a **newline** cannot be
+    represented at all: ``shlex.quote`` keeps it inside single quotes for a
+    shell, but systemd's parser ends the ``ExecStart`` directive at the newline
+    and reads the remainder as further directives — an attacker-chosen
+    ``ExecStartPost=`` would be honored. Such a plan is refused with
+    :class:`ScheduleError` rather than rendered; those paths need the
+    launchd/Windows channels or an installed mcpscan.
+
+    Raises:
+        ScheduleError: If the rendered command carries a newline or other control
+            character that a unit-file line cannot hold.
     """
     command = _posix_command(plan)
+    control = next((ch for ch in command if ch < " " or ch == "\x7f"), None)
+    if control is not None:
+        raise ScheduleError(
+            f"cannot render a systemd unit: a path contains the control character "
+            f"U+{ord(control):04X}, which would terminate the ExecStart line and let "
+            "the rest be read as unit directives"
+        )
     execstart = shlex.quote(command).replace("%", "%%").replace("$", "$$")
     service = (
         "[Unit]\n"

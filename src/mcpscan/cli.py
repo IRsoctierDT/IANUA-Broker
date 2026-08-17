@@ -641,6 +641,7 @@ def _run_schedule(args: argparse.Namespace) -> int:
         DEFAULT_LABEL,
         SERVICE_STEM,
         Cadence,
+        ScheduleError,
         SchedulePlan,
         launchd_plist,
         systemd_units,
@@ -695,7 +696,13 @@ def _run_schedule(args: argparse.Namespace) -> int:
             "below (unload later with 'launchctl unload <path>')."
         )
     elif system == "Linux":
-        timer_text, service_text = systemd_units(plan)
+        try:
+            timer_text, service_text = systemd_units(plan)
+        except ScheduleError as exc:
+            # A path that cannot be represented on a unit-file line is refused,
+            # not rendered — a half-escaped unit is a directive-injection hole.
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
         target = _emit_systemd_units(timer_text, service_text, args.out)
         install = f"systemctl --user enable --now {target.name}"
         instructions = (

@@ -53,10 +53,18 @@ def safe_read_text(
     Raises:
         UnsafeSymlinkError: If the resolved path is outside ``root``.
         FileTooLargeError: If the file exceeds ``max_bytes``.
-        FileAccessError: If the file is missing or unreadable.
+        FileAccessError: If the file is missing, unreadable, or is not a regular
+            file (a FIFO, device, or socket).
     """
-    resolved_root = root.resolve()
-    resolved = path.resolve()
+    try:
+        resolved_root = root.resolve()
+        resolved = path.resolve()
+    except (OSError, RuntimeError) as exc:
+        # A symlink loop raises here (``RuntimeError`` on POSIX, ``OSError``
+        # ELOOP elsewhere) before any invariant is checked. Callers catch
+        # SafeReadError only, so an unwrapped error would crash the scan a
+        # planted loop is meant to survive (NFR-S3).
+        raise FileAccessError(f"{path} cannot be resolved: {exc}") from exc
 
     if not resolved.is_relative_to(resolved_root):
         raise UnsafeSymlinkError(f"{path} resolves outside {root}")
@@ -65,6 +73,14 @@ def safe_read_text(
         size = resolved.stat().st_size
     except OSError as exc:  # missing, permission denied, etc.
         raise FileAccessError(str(exc)) from exc
+
+    if not resolved.is_file():
+        # Not a regular file: a directory, or — the hostile case — a FIFO,
+        # device, or socket planted where a config is expected. ``st_size`` is 0
+        # for those, so the cap below cannot stop them and ``read_text`` would
+        # block forever on a FIFO with no writer (a config-planted hang, the
+        # DoS row of the threat model). Refuse by type instead.
+        raise FileAccessError(f"{path} is not a regular file")
 
     if size > max_bytes:
         raise FileTooLargeError(f"{path} is {size} bytes (cap {max_bytes})")

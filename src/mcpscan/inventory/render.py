@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 
-from ..report import RenderOptions, display_path
+from ..report import RenderOptions, display_path, inert_text
 from .model import Asset, AssetKind, AssetSource, Inventory
 
 _KIND_LABELS: dict[AssetKind, str] = {
@@ -50,12 +50,12 @@ def render_terminal_inventory(inventory: Inventory, opts: RenderOptions) -> str:
             name = f"{asset.product}"
             if asset.server_name:
                 name += f" — '{asset.server_name}'"
-            lines.append(f"  {name}  [{asset.confidence.value} confidence]")
-            lines.append(f"    where:    {_location(asset, opts)}")
+            lines.append(f"  {inert_text(name)}  [{asset.confidence.value} confidence]")
+            lines.append(f"    where:    {inert_text(_location(asset, opts))}")
             if asset.proc_name or asset.pid is not None:
                 proc = asset.proc_name or "?"
-                lines.append(f"    process:  {proc} (pid {asset.pid})")
-            lines.append(f"    evidence: {'; '.join(asset.evidence)}")
+                lines.append(f"    process:  {inert_text(proc)} (pid {asset.pid})")
+            lines.append(f"    evidence: {inert_text('; '.join(asset.evidence))}")
     return "\n".join(lines) + "\n"
 
 

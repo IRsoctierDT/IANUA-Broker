@@ -57,7 +57,9 @@ def baseline_created_at(text: str) -> str | None:
     """
     try:
         data = json.loads(text)
-    except (json.JSONDecodeError, ValueError):
+    except (json.JSONDecodeError, ValueError, RecursionError):
+        # RecursionError (deeply-nested JSON) joins the tolerated set: this
+        # helper's whole contract is "unknown age rather than an error".
         return None
     if not isinstance(data, dict):
         return None
@@ -76,6 +78,12 @@ def load_baseline(text: str, *, verify_digest: bool = True) -> Snapshot:
         data = json.loads(text)
     except (json.JSONDecodeError, ValueError) as exc:
         raise BaselineError(f"malformed baseline JSON: {exc}") from exc
+    except RecursionError as exc:
+        # A deeply-nested baseline overflows the decoder's recursion.
+        # RecursionError is a RuntimeError, so without this guard a tampered
+        # baseline escapes as an uncaught crash instead of the typed refusal
+        # every caller already handles.
+        raise BaselineError("malformed baseline JSON: nesting is too deep") from exc
     if not isinstance(data, dict):
         raise BaselineError("baseline is not a JSON object")
 

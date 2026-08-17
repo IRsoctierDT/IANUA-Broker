@@ -267,13 +267,16 @@ def test_git_tracked_none_when_git_missing(tmp_path: Path, monkeypatch: pytest.M
     assert engine_mod._git_tracked(tmp_path / ".env") is None
 
 
-def test_unreadable_config_is_skipped(tmp_path: Path) -> None:
-    # A path that exists but can't be safely read (here: a directory named
-    # like a config) is skipped gracefully rather than crashing the scan.
+def test_unreadable_config_is_reported_not_skipped(tmp_path: Path) -> None:
+    # A path that exists but can't be safely read (here: a directory named like
+    # a config) degrades gracefully — and is REPORTED (FR-C1: "malformed/
+    # oversized files are reported as a parse_error finding, never crash").
+    # Reporting it is the security-relevant half: silence would let an
+    # attacker hide a config from the scanner just by making it unreadable.
     (tmp_path / ".mcp.json").mkdir()
     report = scan(roots=[tmp_path], system="Linux", env={}, enumerate_sockets=False)
-    assert report.servers == ()
-    assert report.overall_grade == "A"
+    assert [f.id for s in report.servers for f in s.findings] == ["CONFIG-UNREADABLE"]
+    assert all(s.inspection_incomplete for s in report.servers)
 
 
 # --- Cursor host adapter (second adapter, ADR-4) ---

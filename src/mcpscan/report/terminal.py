@@ -1,11 +1,17 @@
 # Copyright 2026 Ivan Rozenblad
 # SPDX-License-Identifier: Apache-2.0
-"""Human-readable terminal renderer (ticket T-301)."""
+"""Human-readable terminal renderer (ticket T-301).
+
+Every string that originates in a scanned config — the server id, a finding
+title, a location, the rationale/remediation prose that quotes them — goes
+through :func:`~mcpscan.report.inert_text` before it is printed, so a hostile
+config cannot repaint or forge the report it appears in.
+"""
 
 from __future__ import annotations
 
 from ..domain import Report, Severity
-from . import RenderOptions
+from . import RenderOptions, inert_text
 from .common import acceptance_str, location_str, ordered_findings, secret_str, server_grade
 
 _SEV_LABEL = {
@@ -54,17 +60,19 @@ def render_terminal(report: Report, opts: RenderOptions | None = None) -> str:
             continue
         lines.append("")
         flag = " (inspection incomplete)" if server.inspection_incomplete else ""
-        lines.append(f"▶ {server.id}  [grade {server_grade(server)}]{flag}")
+        lines.append(f"▶ {inert_text(server.id)}  [grade {server_grade(server)}]{flag}")
         for finding in ordered_findings(server):
-            loc = location_str(finding, opts)
-            lines.append(f"  [{_SEV_LABEL[finding.severity]:8}] {finding.title}")
+            loc = inert_text(location_str(finding, opts))
+            lines.append(f"  [{_SEV_LABEL[finding.severity]:8}] {inert_text(finding.title)}")
             if finding.acceptance is not None:
-                lines.append(f"             accept: {acceptance_str(finding.acceptance)}")
+                lines.append(
+                    f"             accept: {inert_text(acceptance_str(finding.acceptance))}"
+                )
             lines.append(f"             where: {loc}")
             secret = secret_str(finding.secret, opts)
             if secret is not None:
-                lines.append(f"             secret: {secret}")
-            lines.append(f"             why:   {finding.rationale}")
-            lines.append(f"             fix:   {finding.remediation}")
+                lines.append(f"             secret: {inert_text(secret)}")
+            lines.append(f"             why:   {inert_text(finding.rationale)}")
+            lines.append(f"             fix:   {inert_text(finding.remediation)}")
 
     return "\n".join(lines) + "\n"

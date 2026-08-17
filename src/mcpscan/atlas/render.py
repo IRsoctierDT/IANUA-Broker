@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 
 from ..domain import Report
-from ..report import RenderOptions, display_path
+from ..report import RenderOptions, display_path, inert_text
 from .model import MAPPINGS, FrameworkRef, framework_label, refs_for
 
 
@@ -39,9 +39,12 @@ def render_terminal_atlas(report: Report, opts: RenderOptions) -> str:
         if not server.findings:
             continue
         lines.append("")
-        lines.append(f"▶ {display_path(server.id, opts)}")
+        lines.append(f"▶ {inert_text(display_path(server.id, opts))}")
         for finding in server.findings:
-            lines.append(f"  [{finding.severity.value.upper():8}] {finding.id}: {finding.title}")
+            lines.append(
+                f"  [{finding.severity.value.upper():8}] "
+                f"{inert_text(finding.id)}: {inert_text(finding.title)}"
+            )
             refs = refs_for(finding.id)
             if not refs:
                 lines.append("             (no framework mapping)")

@@ -13,7 +13,7 @@ from __future__ import annotations
 from html import escape
 
 from ..domain import Report, Severity
-from . import RenderOptions
+from . import RenderOptions, inert_text
 from .common import acceptance_str, location_str, ordered_findings, secret_str, server_grade
 
 # AA-contrast severity colors on a white background.
@@ -49,6 +49,20 @@ footer { margin-top: 2rem; color: #555; font-size: .85rem; }
 """
 
 
+def _safe(text: str) -> str:
+    """Escape markup **and** defang invisible controls in an untrusted string.
+
+    ``html.escape`` neutralizes markup, which stops script injection — but it
+    leaves bidirectional and zero-width characters intact, and a browser honours
+    those. A server name carrying U+202E therefore still reorders what a reviewer
+    reads, in the artifact most likely to be forwarded to one. Escaping alone is
+    the wrong boundary for a value the scanner does not own; every such value goes
+    through :func:`~mcpscan.report.inert_text` first, exactly as it does on the
+    terminal, so the two renderers cannot disagree about what "inert" means.
+    """
+    return escape(inert_text(text))
+
+
 def _grade_badge(grade: str) -> str:
     g = escape(grade)
     return f'<span class="grade grade-{g}">{g}</span>'
@@ -82,27 +96,27 @@ def render_html(report: Report, opts: RenderOptions | None = None) -> str:
         flag = " — inspection incomplete" if server.inspection_incomplete else ""
         parts.append('<section class="server">')
         parts.append(
-            f"<h2>{_grade_badge(server_grade(server))} {escape(server.id)}{escape(flag)}</h2>"
+            f"<h2>{_grade_badge(server_grade(server))} {_safe(server.id)}{escape(flag)}</h2>"
         )
         for finding in ordered_findings(server):
             color = _SEV_COLOR[finding.severity]
             parts.append('<div class="finding">')
             parts.append(
                 f'<div class="sev" style="color:{color}">'
-                f"{escape(finding.severity.value.upper())} — {escape(finding.title)}</div>"
+                f"{escape(finding.severity.value.upper())} — {_safe(finding.title)}</div>"
             )
             if finding.acceptance is not None:
                 parts.append(
-                    f'<div class="meta">accept: {escape(acceptance_str(finding.acceptance))}</div>'
+                    f'<div class="meta">accept: {_safe(acceptance_str(finding.acceptance))}</div>'
                 )
             parts.append(
-                f'<div class="meta">where: <code>{escape(location_str(finding, opts))}</code></div>'
+                f'<div class="meta">where: <code>{_safe(location_str(finding, opts))}</code></div>'
             )
             secret = secret_str(finding.secret, opts)
             if secret is not None:
-                parts.append(f'<div class="meta">secret: <code>{escape(secret)}</code></div>')
-            parts.append(f'<div class="meta">why: {escape(finding.rationale)}</div>')
-            parts.append(f'<div class="meta">fix: {escape(finding.remediation)}</div>')
+                parts.append(f'<div class="meta">secret: <code>{_safe(secret)}</code></div>')
+            parts.append(f'<div class="meta">why: {_safe(finding.rationale)}</div>')
+            parts.append(f'<div class="meta">fix: {_safe(finding.remediation)}</div>')
             parts.append("</div>")
         parts.append("</section>")
 

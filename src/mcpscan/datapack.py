@@ -270,6 +270,12 @@ def parse_datapack(raw: str) -> DataPack | DataPackError:
         data = json.loads(raw)
     except (json.JSONDecodeError, ValueError) as exc:
         return DataPackError(f"invalid datapack JSON: {exc}")
+    except RecursionError:
+        # Deeply-nested JSON overflows the decoder's recursion. RecursionError is
+        # a RuntimeError, not a ValueError, so it needs its own guard — this
+        # function's contract is "never raises" and the fail-closed refusal must
+        # hold for a hostile pack as much as a malformed one.
+        return DataPackError("datapack nesting is too deep to parse")
     if not isinstance(data, dict):
         return DataPackError("datapack must be a JSON object")
 

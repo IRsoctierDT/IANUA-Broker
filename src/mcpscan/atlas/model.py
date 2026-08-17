@@ -207,6 +207,10 @@ MAPPINGS: dict[str, tuple[FrameworkRef, ...]] = {
     "BROKER-NO-AUDIT": (_IMPAIR_LOGGING, _RMF_GOVERN, _CIS_AUDIT_LOG),
     "BROKER-ALLOWLIST-PERMISSIVE": (_ELEVATION, _LLM_AGENCY, _RMF_GOVERN, _CIS_ACCESS),
     "BROKER-PARSE-ERROR": (_IMPAIR_DEFENSES, _RMF_GOVERN, _CIS_CONFIG),
+    # Inspection health: a host config the scanner could not read or parse. Maps
+    # to Impair Defenses because an unparseable config is a defence-evasion
+    # primitive — the surface goes un-inspected while the host may still load it.
+    "CONFIG-UNREADABLE": (_IMPAIR_DEFENSES, _RMF_MANAGE, _CIS_CONFIG),
 }
 
 

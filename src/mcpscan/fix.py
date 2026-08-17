@@ -100,6 +100,12 @@ def plan_config_fixes(path: str, raw: str) -> FixPlan:
         data = json.loads(raw)
     except (json.JSONDecodeError, ValueError) as exc:
         return FixPlan(path=path, error=f"invalid JSON: {exc}")
+    except RecursionError:
+        # Deeply-nested JSON overflows the decoder. RecursionError is a
+        # RuntimeError, not a ValueError — and this function writes to the
+        # user's config, so "never raises" must hold on hostile input too: the
+        # file is reported untouched rather than crashing mid-remediation.
+        return FixPlan(path=path, error="config nesting is too deep to parse")
     if not isinstance(data, dict):
         return FixPlan(path=path, error="config root is not an object")
 
