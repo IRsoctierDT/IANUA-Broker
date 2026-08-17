@@ -35,6 +35,7 @@ from .checks.broker import (
     parse_broker_manifest,
 )
 from .checks.config_health import check_config_readable
+from .checks.datapack_health import check_datapack_store
 from .checks.exposure import check_socket_exposure
 from .checks.pinning import (
     PackageSpec,
@@ -68,6 +69,7 @@ from .datapack import (
     compile_agent_catalog,
     compile_secret_catalog,
     load_local_datapack,
+    store_is_writable_by_others,
 )
 from .discovery.process_env import iter_agent_process_envs, looks_like_agent
 from .discovery.sockets import EnumerationResult, enumerate_listening
@@ -639,23 +641,51 @@ def _enrich_cmdline(
 
 def _active_secret_and_agent_catalogs(
     system: str, env: Mapping[str, str]
-) -> tuple[SecretCatalog, AgentCatalog]:
+) -> tuple[SecretCatalog, AgentCatalog, list[Finding]]:
     """Resolve the active detection catalogs once per scan (Feature D).
 
-    A pack installed by ``update-datapack`` (verified at install time, owner-only
-    at rest) lives in the OS-appropriate local store; if it is present and still
+    A pack installed by ``update-datapack`` (verified at install time) lives in
+    the OS-appropriate local store; if it is present, still owner-only, and still
     parses, its catalogs drive detection. Otherwise — the default case — the
     built-in pack is used, so a scan with no installed pack is byte-identical to
-    before. A store that no longer parses falls back to the built-in silently
-    (a corrupt store can never crash or weaken a scan below the built-in).
+    before.
+
+    Every fallback is safe by construction: a corrupt or tampered store can never
+    crash a scan, and can never weaken detection below the built-in catalog. One
+    of them is not merely safe but *reportable* — a store other local users can
+    write is a live tampering surface, so it comes back as a
+    ``DATAPACK-STORE-PERMS`` finding rather than a silent downgrade. The returned
+    findings ride the scan like any other.
     """
     pack = builtin_datapack()
+    findings: list[Finding] = []
     store = datapack_store_path(system, env)
     if store is not None:
-        local = load_local_datapack(Path(str(store)))
+        store_file = Path(str(store))
+        if store_file.exists():
+            findings += check_datapack_store(
+                str(store_file),
+                writable_by_others=store_is_writable_by_others(store_file),
+            )
+        local = load_local_datapack(store_file)
         if local is not None:
             pack = local
-    return compile_secret_catalog(pack), compile_agent_catalog(pack)
+    return compile_secret_catalog(pack), compile_agent_catalog(pack), findings
+
+
+def _datapack_store_server(findings: Sequence[Finding], store_path: str) -> Server:
+    """A synthetic server carrying data-pack store findings (mirrors ``broker://``)."""
+    return Server(
+        id=f"datapack://{store_path}",
+        bind_addr=None,
+        port=None,
+        pid=None,
+        proc_name=None,
+        state=ServerState.DECLARED,
+        running=False,
+        inspection_incomplete=True,
+        findings=tuple(findings),
+    )
 
 
 def scan(
@@ -715,11 +745,17 @@ def scan(
         fetch = osv_fetch if osv_fetch is not None else _default_osv_fetch
 
     # Active detection catalogs (built-in, or a verified installed data-pack),
-    # resolved once so every check sees the same catalog (Feature D).
-    secret_catalog, agent_catalog = _active_secret_and_agent_catalogs(system, env)
+    # resolved once so every check sees the same catalog (Feature D). A store
+    # that cannot be trusted downgrades to the built-in AND says so.
+    secret_catalog, agent_catalog, datapack_findings = _active_secret_and_agent_catalogs(
+        system, env
+    )
 
     adapters = _adapters()
     servers: list[Server] = []
+    if datapack_findings:
+        store = datapack_store_path(system, env)
+        servers.append(_datapack_store_server(datapack_findings, str(store)))
     # (subject_id, decl) for every declared server, collected only when the
     # opt-in broker audit needs them — the trust-engine identity the manifest's
     # ``fronts`` list is joined against.

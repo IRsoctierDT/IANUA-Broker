@@ -6,14 +6,41 @@ The baseline is byte-stable JSON: the same posture always writes the same bytes
 (``created_at`` metadata aside), so it diffs cleanly in version control. On load,
 the stored digest is recomputed from the facts — a mismatch means the file was
 edited or corrupted, and the caller can refuse to trust it.
+
+**Two different guarantees, and the difference matters.** The digest detects
+*accident*: truncation, a bad merge, a partial write. It cannot detect a
+motivated editor, because it is a plain hash of the facts — anyone who can
+rewrite the file can recompute it, and no key is involved. That is a real gap
+wherever the baseline is the control: drift is the mechanism that catches a slow
+compromise, so "no drift" is only worth what the baseline is worth, and a
+baseline lives in a repository that many people can push to.
+
+:func:`load_verified_baseline` closes it, opt-in: a detached signature over the
+baseline bytes, verified before the file is parsed, reusing the same machinery as
+the LAN manifest and the data-pack (:mod:`mcpscan.lan.verify`) under a dedicated
+``mcpscan-baseline`` namespace so a signature minted for one channel can never
+verify in another. As in those channels the tool only *verifies* — signing is the
+operator's action with their own key, and no private key is ever handled here.
 """
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .model import DRIFT_SCHEMA_VERSION, FactKind, PostureFact, Snapshot
 from .snapshot import snapshot_digest
+
+if TYPE_CHECKING:  # imported lazily at runtime so a plain diff never loads lan/verify
+    from ..lan.verify import Verifier
+
+# Domain separation, mirroring the data-pack channel: an SSHSIG carries its
+# namespace, so ``ssh`` gets a distinct one …
+BASELINE_SSH_NAMESPACE = "mcpscan-baseline"
+# … while a raw Ed25519 signature carries nothing, so the context is prefixed to
+# the signed bytes instead. Signers must sign ``BASELINE_ED25519_CONTEXT + bytes``.
+BASELINE_ED25519_CONTEXT = b"mcpscan-baseline\x00"
 
 
 class BaselineError(Exception):
@@ -109,6 +136,74 @@ def load_baseline(text: str, *, verify_digest: bool = True) -> Snapshot:
                 "(the file was edited or corrupted)"
             )
     return snapshot
+
+
+def _default_baseline_verifier(scheme: str) -> Verifier:
+    """The real verifier for ``scheme``, bound to the baseline domain."""
+    from ..lan.verify import VerifyResult, verify_ed25519, verify_ssh
+
+    if scheme == "ed25519":
+
+        def _ed(mb: bytes, sig: Path, signers: Path, operator: str) -> VerifyResult:
+            return verify_ed25519(BASELINE_ED25519_CONTEXT + mb, sig, signers, operator)
+
+        return _ed
+
+    def _ssh(mb: bytes, sig: Path, signers: Path, operator: str) -> VerifyResult:
+        return verify_ssh(mb, sig, signers, operator, namespace=BASELINE_SSH_NAMESPACE)
+
+    return _ssh
+
+
+def load_verified_baseline(
+    baseline_bytes: bytes,
+    signature_path: Path,
+    allowed_signers: Path,
+    *,
+    operator: str,
+    scheme: str = "ssh",
+    verifier: Verifier | None = None,
+) -> Snapshot:
+    """Verify a detached signature over the baseline bytes, then parse them.
+
+    Verify-or-refuse, and in that order: nothing is parsed until the signature
+    over the **exact bytes on disk** verifies, so a baseline that fails is never
+    partially trusted. The caller passes the bytes it already read, so the bytes
+    verified are the bytes used — no second read a concurrent write could
+    diverge from.
+
+    This is strictly stronger than the digest, and it subsumes it: a signed
+    baseline still has its digest checked by :func:`load_baseline` afterwards, so
+    accidental corruption and deliberate rewriting are both caught, by the
+    mechanism suited to each.
+
+    Args:
+        baseline_bytes: The baseline file's exact bytes.
+        signature_path: Detached signature over those bytes.
+        allowed_signers: The principals permitted to sign a baseline.
+        operator: Which of those principals to require.
+        scheme: ``ssh`` (default, dependency-free) or ``ed25519``.
+        verifier: Injectable for tests, so nothing shells out.
+
+    Raises:
+        BaselineError: If the scheme is unknown, the signature does not verify,
+            the bytes are not UTF-8, or the parsed baseline is malformed. Callers
+            already handle this one type, so a signature failure needs no new
+            error path.
+    """
+    if scheme not in ("ssh", "ed25519"):
+        raise BaselineError(f"unsupported signature scheme {scheme!r}")
+
+    verify = verifier or _default_baseline_verifier(scheme)
+    result = verify(baseline_bytes, signature_path, allowed_signers, operator)
+    if not result.ok:
+        raise BaselineError(f"baseline signature refused: {result.detail}")
+
+    try:
+        text = baseline_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise BaselineError(f"baseline is not valid UTF-8: {exc}") from exc
+    return load_baseline(text)
 
 
 def _fact_from_dict(item: object) -> PostureFact:

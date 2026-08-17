@@ -211,6 +211,10 @@ MAPPINGS: dict[str, tuple[FrameworkRef, ...]] = {
     # to Impair Defenses because an unparseable config is a defence-evasion
     # primitive — the surface goes un-inspected while the host may still load it.
     "CONFIG-UNREADABLE": (_IMPAIR_DEFENSES, _RMF_MANAGE, _CIS_CONFIG),
+    # The detection catalog itself is a tampering target: whoever can write
+    # the store decides what counts as a secret, so this is defence evasion
+    # via the tool's own supply of detection content.
+    "DATAPACK-STORE-PERMS": (_IMPAIR_DEFENSES, _SUPPLY_CHAIN, _RMF_GOVERN, _CIS_CONFIG),
 }
 
 
