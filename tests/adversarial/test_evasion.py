@@ -323,13 +323,13 @@ def test_an_edited_baseline_fails_its_integrity_check(tmp_path: Path) -> None:
         load_baseline(json.dumps(tampered))
 
 
-def test_a_baseline_with_a_recomputed_digest_is_documented_as_trusted(tmp_path: Path) -> None:
-    """Scope statement: the digest detects *corruption*, not a motivated editor.
+def test_an_unsigned_baseline_with_a_recomputed_digest_is_accepted(tmp_path: Path) -> None:
+    """The digest detects *corruption*, not a motivated editor — by design.
 
     It is a plain hash of the facts, not a MAC over a key the attacker lacks, so
-    anyone who can rewrite the file can recompute it. Pinning that here keeps the
-    limitation explicit — the baseline is trusted-at-rest input, and a repo where
-    an attacker can rewrite committed files has a bigger problem than drift.
+    anyone who can rewrite the file can recompute it. That is the *unsigned*
+    contract, pinned here so the limitation stays explicit; the signed path below
+    is what closes it where the baseline is actually a control.
     """
     from mcpscan.drift.snapshot import snapshot_digest
 
@@ -340,7 +340,129 @@ def test_a_baseline_with_a_recomputed_digest_is_documented_as_trusted(tmp_path: 
     forged = json.loads(text)
     forged["facts"] = []
     forged["digest"] = snapshot_digest(load_baseline(json.dumps(forged), verify_digest=False))
-    load_baseline(json.dumps(forged))  # accepted — by design, and documented
+    load_baseline(json.dumps(forged))  # accepted — the unsigned contract
+
+
+def test_a_forged_baseline_is_refused_when_it_is_signed(tmp_path: Path) -> None:
+    """A recomputed digest does not survive a signature over the bytes.
+
+    This is the whole point of the signed path: the forger can rewrite the facts
+    and fix up the hash, but cannot produce a signature for the new bytes without
+    the operator's key. Verification runs *before* any parsing, so a refused
+    baseline is never partially trusted.
+    """
+    from mcpscan.drift.baseline import load_verified_baseline
+    from mcpscan.drift.snapshot import snapshot_digest
+
+    snapshot = build_snapshot(
+        scan(roots=[tmp_path], system="Linux", env={"HOME": str(tmp_path)}, enumerate_sockets=False)
+    )
+    authentic = render_baseline(snapshot, created_at="2026-01-01").encode("utf-8")
+
+    forged_obj = json.loads(authentic)
+    forged_obj["facts"] = []
+    forged_obj["digest"] = snapshot_digest(
+        load_baseline(json.dumps(forged_obj), verify_digest=False)
+    )
+    forged = json.dumps(forged_obj).encode("utf-8")
+
+    # A verifier that only accepts the bytes the operator actually signed.
+    def only_authentic(payload: bytes, *_rest: object) -> VerifyResult:
+        return (
+            VerifyResult(ok=True, detail="ok")
+            if payload == authentic
+            else VerifyResult(ok=False, detail="signature does not match the baseline bytes")
+        )
+
+    load_verified_baseline(
+        authentic,
+        tmp_path / "sig",
+        tmp_path / "signers",
+        operator="ada",
+        verifier=only_authentic,
+    )  # the real baseline still loads
+
+    with pytest.raises(BaselineError, match="signature refused"):
+        load_verified_baseline(
+            forged,
+            tmp_path / "sig",
+            tmp_path / "signers",
+            operator="ada",
+            verifier=only_authentic,
+        )
+
+
+def test_a_signed_baseline_is_not_parsed_before_it_verifies(tmp_path: Path) -> None:
+    """Verify-or-refuse, in that order: hostile bytes never reach the parser.
+
+    A baseline that would crash or mislead the parser must be rejected on the
+    signature first — otherwise the signature is decoration on an already-taken
+    risk.
+    """
+    from mcpscan.drift.baseline import load_verified_baseline
+
+    for payload in (deep_json().encode(), b"{not json", b"\xff\xfe", b""):
+        with pytest.raises(BaselineError, match="signature refused"):
+            load_verified_baseline(
+                payload,
+                tmp_path / "sig",
+                tmp_path / "signers",
+                operator="ada",
+                verifier=lambda *_a: VerifyResult(ok=False, detail="nope"),
+            )
+
+
+def test_a_valid_signature_over_a_malformed_baseline_is_still_refused(tmp_path: Path) -> None:
+    """A signature attests to bytes, not to sanity — validation still runs.
+
+    An operator can sign nonsense, by accident or because their key was used on
+    the wrong file. The parse must still reject it.
+    """
+    from mcpscan.drift.baseline import load_verified_baseline
+
+    for payload in (deep_json().encode(), b"{not json", b"[]", b'{"schema_version": "0.0"}'):
+        with pytest.raises(BaselineError):
+            load_verified_baseline(
+                payload,
+                tmp_path / "sig",
+                tmp_path / "signers",
+                operator="ada",
+                verifier=lambda *_a: VerifyResult(ok=True, detail="ok"),
+            )
+
+
+@pytest.mark.parametrize("scheme", ["SSH", "ed25519 ", "rsa", "", "none"])
+def test_an_unknown_baseline_signature_scheme_is_refused(scheme: str, tmp_path: Path) -> None:
+    """Scheme confusion fails closed here too, matching the data-pack channel."""
+    from mcpscan.drift.baseline import load_verified_baseline
+
+    with pytest.raises(BaselineError, match="unsupported signature scheme"):
+        load_verified_baseline(
+            b"{}",
+            tmp_path / "sig",
+            tmp_path / "signers",
+            operator="ada",
+            scheme=scheme,
+            verifier=lambda *_a: VerifyResult(ok=True, detail="ok"),
+        )
+
+
+def test_the_baseline_signature_domain_is_separate_from_the_other_channels() -> None:
+    """A signature minted for the LAN or data-pack channel must not verify here.
+
+    Domain separation is what stops an operator's signature over *some other*
+    artifact from being replayed as authority over the baseline. SSHSIG carries
+    its namespace; a raw ed25519 signature carries nothing, so the context is
+    prefixed to the signed bytes instead.
+    """
+    from mcpscan.datapack import DATAPACK_ED25519_CONTEXT, DATAPACK_SSH_NAMESPACE
+    from mcpscan.drift.baseline import BASELINE_ED25519_CONTEXT, BASELINE_SSH_NAMESPACE
+    from mcpscan.lan.verify import SSH_NAMESPACE
+
+    namespaces = {SSH_NAMESPACE, DATAPACK_SSH_NAMESPACE, BASELINE_SSH_NAMESPACE}
+    assert len(namespaces) == 3, "each channel needs its own ssh namespace"
+    assert BASELINE_ED25519_CONTEXT != DATAPACK_ED25519_CONTEXT
+    assert BASELINE_ED25519_CONTEXT.endswith(b"\x00"), "context must be unambiguously delimited"
 
 
 # --- 4. silence by poisoning the detection catalog ---------------------------
@@ -529,3 +651,250 @@ def test_a_secret_hidden_behind_jsonc_comments_is_still_found(tmp_path: Path) ->
     ids = [f.id for s in report.servers for f in s.findings]
     assert "CRED-PLAINTEXT" in ids
     assert not any(s.id.endswith("#decoy") for s in report.servers)
+
+
+# --- 6. silence by owning the detection catalog ------------------------------
+@posix_only
+def test_a_world_writable_datapack_store_is_refused(tmp_path: Path) -> None:
+    """A store other users can write cannot define what counts as a secret.
+
+    This is the highest-leverage file on the machine for an attacker who wants a
+    clean scan: they need not hide a credential if they can redefine the patterns
+    that would have found it, and the scan then passes *honestly*. The signature
+    is checked once at install time, so the ongoing control is the file mode —
+    which drifts, via an umask, a restored backup, or a group-writable parent.
+    """
+    from mcpscan.datapack import load_local_datapack, store_is_writable_by_others
+
+    store = tmp_path / "datapack.json"
+    store.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "provider_patterns": [{"label": "x", "pattern": "sk-[A-Z]{10}"}],
+                "secret_name_pattern": "TOKEN",
+                "entropy_threshold": 3.5,
+                "min_entropy_len": 20,
+                "agent_markers": ["mcp"],
+                "token_store_templates": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    store.chmod(0o600)
+    assert not store_is_writable_by_others(store)
+    assert load_local_datapack(store) is not None, "an owner-only store still loads"
+
+    for mode in (0o622, 0o662, 0o666, 0o777):
+        store.chmod(mode)
+        assert store_is_writable_by_others(store), f"mode {mode:o} is writable by others"
+        assert load_local_datapack(store) is None, f"mode {mode:o} must be refused"
+
+
+@posix_only
+def test_a_readable_but_not_writable_store_is_still_used(tmp_path: Path) -> None:
+    """The check is about *write*, not read — no false refusal.
+
+    A data-pack carries no secrets, so another user reading it costs nothing.
+    Refusing on read bits would break legitimate setups for no security gain.
+    """
+    from mcpscan.datapack import load_local_datapack
+
+    store = tmp_path / "datapack.json"
+    store.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "provider_patterns": [],
+                "secret_name_pattern": "TOKEN",
+                "entropy_threshold": 3.5,
+                "min_entropy_len": 20,
+                "agent_markers": ["mcp"],
+                "token_store_templates": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    store.chmod(0o644)  # world-READABLE, owner-writable only
+    assert load_local_datapack(store) is not None
+
+
+@posix_only
+def test_a_writable_store_is_reported_not_silently_dropped(tmp_path: Path) -> None:
+    """Refusing the store fail-safe is not enough — the operator must be told.
+
+    Otherwise the scan keeps reporting clean from a catalog that was quietly
+    discarded, and nobody learns the refresh channel was compromised.
+    """
+    home = tmp_path / "home"
+    (home / ".config" / "mcpscan").mkdir(parents=True)
+    store = home / ".config" / "mcpscan" / "datapack.json"
+    store.write_text('{"schema_version": "1.0"}', encoding="utf-8")
+    store.chmod(0o666)
+
+    report = scan(
+        roots=[tmp_path / "repo"],
+        system="Linux",
+        env={"HOME": str(home)},
+        enumerate_sockets=False,
+    )
+    findings = [f for s in report.servers for f in s.findings]
+    assert [f.id for f in findings] == ["DATAPACK-STORE-PERMS"]
+    assert findings[0].severity is Severity.HIGH
+    assert all(s.inspection_incomplete for s in report.servers)
+
+
+@posix_only
+def test_a_writable_store_never_weakens_detection_below_the_builtin(tmp_path: Path) -> None:
+    """Fail-safe, not just fail-closed: the built-in catalog still finds secrets.
+
+    The attack this defends against is a pack that detects *nothing*. Refusing it
+    must land on the built-in catalog, not on an empty one.
+    """
+    home = tmp_path / "home"
+    (home / ".config" / "mcpscan").mkdir(parents=True)
+    store = home / ".config" / "mcpscan" / "datapack.json"
+    store.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "provider_patterns": [],  # detects nothing
+                "secret_name_pattern": "MATCHES_NOTHING_XYZZY",
+                "entropy_threshold": 99.0,
+                "min_entropy_len": 100000,
+                "agent_markers": ["mcp"],
+                "token_store_templates": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    store.chmod(0o666)
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / ".mcp.json").write_text(
+        json.dumps(
+            {"mcpServers": {"leaky": {"command": "x", "env": {"API_KEY": FAKE_ANTHROPIC_KEY}}}}
+        ),
+        encoding="utf-8",
+    )
+    report = scan(roots=[root], system="Linux", env={"HOME": str(home)}, enumerate_sockets=False)
+    ids = [f.id for s in report.servers for f in s.findings]
+    assert "CRED-PLAINTEXT" in ids, "the built-in catalog must still detect the key"
+    assert "DATAPACK-STORE-PERMS" in ids
+
+
+def test_diff_refuses_a_baseline_whose_signature_does_not_verify(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End-to-end: `diff` will not report drift from an unverifiable baseline.
+
+    Exit 2 (a usage/refusal code), not 0 — a run that could not establish what
+    the baseline says must never look like "no drift".
+    """
+    import mcpscan.drift.baseline as baseline_mod
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    baseline = tmp_path / "b.json"
+    assert main(["baseline", "--root", str(root), "--out", str(baseline)]) == 0
+    capsys.readouterr()
+
+    (tmp_path / "sig").write_text("not a real signature", encoding="utf-8")
+    (tmp_path / "signers").write_text("ada AAAA\n", encoding="utf-8")
+    monkeypatch.setattr(
+        baseline_mod,
+        "_default_baseline_verifier",
+        lambda scheme: lambda *_a: VerifyResult(ok=False, detail="bad signature"),
+    )
+
+    code = main(
+        [
+            "diff",
+            "--root",
+            str(root),
+            "--baseline",
+            str(baseline),
+            "--signature",
+            str(tmp_path / "sig"),
+            "--allowed-signers",
+            str(tmp_path / "signers"),
+        ]
+    )
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "signature refused" in err
+
+
+def test_diff_accepts_a_baseline_whose_signature_verifies(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The happy path still works — verification is a gate, not a wall."""
+    import mcpscan.drift.baseline as baseline_mod
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    baseline = tmp_path / "b.json"
+    main(["baseline", "--root", str(root), "--out", str(baseline)])
+    capsys.readouterr()
+
+    (tmp_path / "sig").write_text("sig", encoding="utf-8")
+    (tmp_path / "signers").write_text("ada AAAA\n", encoding="utf-8")
+    monkeypatch.setattr(
+        baseline_mod,
+        "_default_baseline_verifier",
+        lambda scheme: lambda *_a: VerifyResult(ok=True, detail="ok"),
+    )
+
+    code = main(
+        [
+            "diff",
+            "--root",
+            str(root),
+            "--baseline",
+            str(baseline),
+            "--signature",
+            str(tmp_path / "sig"),
+            "--allowed-signers",
+            str(tmp_path / "signers"),
+            "--fail-on-regression",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 0, "an unchanged repo with a verified baseline reports no drift"
+    assert "verifying" in captured.err
+
+
+@pytest.mark.parametrize("flag", ["--signature", "--allowed-signers"])
+def test_half_a_verification_configuration_is_refused(flag: str, tmp_path: Path, capsys) -> None:
+    """Passing one flag of the pair must not silently skip verification.
+
+    This is the dangerous middle: an operator who typed --signature believes the
+    baseline is verified. Falling back to the unsigned path there would hand them
+    a false assurance, which is worse than not offering the feature.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    baseline = tmp_path / "b.json"
+    main(["baseline", "--root", str(root), "--out", str(baseline)])
+    capsys.readouterr()
+
+    code = main(
+        ["diff", "--root", str(root), "--baseline", str(baseline), flag, str(tmp_path / "x")]
+    )
+    assert code == 2
+    assert "both --signature and --allowed-signers" in capsys.readouterr().err
+
+
+def test_an_unsigned_diff_still_works_unchanged(tmp_path: Path, capsys) -> None:
+    """The feature is opt-in: no flags, no behaviour change."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    baseline = tmp_path / "b.json"
+    main(["baseline", "--root", str(root), "--out", str(baseline)])
+    capsys.readouterr()
+
+    code = main(["diff", "--root", str(root), "--baseline", str(baseline), "--fail-on-regression"])
+    capsys.readouterr()
+    assert code == 0

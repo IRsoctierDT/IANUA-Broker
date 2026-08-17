@@ -326,7 +326,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--signature",
         metavar="PATH",
         type=Path,
-        help="Detached signature over the manifest (default: <manifest>.sig).",
+        help=(
+            "Detached signature over the signed input: the manifest ('lan'), the "
+            "data-pack ('update-datapack'), or the baseline ('diff')."
+        ),
     )
     lan.add_argument(
         "--allowed-signers",
@@ -369,15 +372,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--signer",
         metavar="ID",
         help=(
-            "update-datapack: the signer identity to check against --allowed-signers "
-            "(default: the first principal named in that file)."
+            "The signer identity to check against --allowed-signers, for "
+            "'update-datapack' and for a signed baseline on 'diff' (default: the "
+            "first principal named in that file)."
         ),
     )
     datapack.add_argument(
         "--scheme",
         choices=("ssh", "ed25519"),
         default="ssh",
-        help="update-datapack: the signature scheme (default: ssh, dependency-free).",
+        help=(
+            "The signature scheme for 'update-datapack' and for verifying a signed "
+            "baseline on 'diff' (default: ssh, dependency-free)."
+        ),
     )
     return parser
 
@@ -495,10 +502,18 @@ def _posture_snapshot(args: argparse.Namespace) -> Snapshot:
 
 
 def _run_baseline(args: argparse.Namespace) -> int:
-    """Write a signed-by-digest posture snapshot (Tier 5)."""
+    """Write a posture snapshot carrying an integrity digest (Tier 5).
+
+    The digest is a hash, not a signature: it catches corruption, not a
+    motivated editor. Where the baseline is a control — CI, where "no drift" is
+    the thing being trusted — sign it and verify on ``diff``; the guidance below
+    prints the exact command. Signing is the operator's action with their own
+    key, so this tool never handles private key material.
+    """
     from datetime import datetime
 
     from .drift import render_baseline
+    from .drift.baseline import BASELINE_SSH_NAMESPACE
     from .report.writer import write_report
 
     snapshot = _posture_snapshot(args)
@@ -508,6 +523,16 @@ def _run_baseline(args: argparse.Namespace) -> int:
     if args.out is not None:
         write_report(args.out, text)
         print(f"wrote baseline: {args.out} ({len(snapshot.facts)} facts)", file=sys.stderr)
+        print(
+            "note: the baseline carries an integrity digest, which detects corruption "
+            "but not deliberate editing — anyone who can rewrite the file can "
+            "recompute it. To make drift trustworthy where the file is shared, sign "
+            "it and verify on diff:\n"
+            f"  ssh-keygen -Y sign -f <key> -n {BASELINE_SSH_NAMESPACE} {args.out}\n"
+            f"  mcpscan diff --baseline {args.out} --signature {args.out}.sig "
+            "--allowed-signers <file>",
+            file=sys.stderr,
+        )
     else:
         print(text, end="")
     return 0
@@ -517,6 +542,7 @@ def _run_diff(args: argparse.Namespace) -> int:
     """Compare the current posture against a baseline snapshot (Tier 5)."""
     from datetime import datetime
 
+    from .datapack import first_allowed_signer
     from .drift import (
         BaselineError,
         assess_staleness,
@@ -524,6 +550,7 @@ def _run_diff(args: argparse.Namespace) -> int:
         diff_snapshots,
         load_baseline,
     )
+    from .drift.baseline import load_verified_baseline
     from .drift.render import render_json_drift, render_terminal_drift
     from .report.writer import write_report
 
@@ -531,15 +558,61 @@ def _run_diff(args: argparse.Namespace) -> int:
         print("error: 'diff' requires --baseline PATH", file=sys.stderr)
         return 2
     try:
-        baseline_text = args.baseline.read_text(encoding="utf-8")
+        baseline_bytes = args.baseline.read_bytes()
     except OSError as exc:
         print(f"error: cannot read baseline {args.baseline}: {exc}", file=sys.stderr)
         return 2
     try:
-        baseline = load_baseline(baseline_text)
-    except BaselineError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        baseline_text = baseline_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        print(f"error: baseline {args.baseline} is not valid UTF-8: {exc}", file=sys.stderr)
         return 2
+
+    # Opt-in signature verification. Half a configuration is a trap — an operator
+    # who passes only one of the two flags believes the baseline is verified when
+    # it is not — so the pair is required together rather than silently ignored.
+    if args.signature is not None or args.allowed_signers is not None:
+        if args.signature is None or args.allowed_signers is None:
+            print(
+                "error: verifying a baseline needs both --signature and --allowed-signers",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            signers_text = args.allowed_signers.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            print(f"error: cannot read {args.allowed_signers}: {exc}", file=sys.stderr)
+            return 2
+        operator = args.signer or first_allowed_signer(signers_text)
+        if operator is None:
+            print(
+                "error: cannot determine the signer identity from --allowed-signers; "
+                "pass --signer ID",
+                file=sys.stderr,
+            )
+            return 2
+        print(
+            f"note: verifying {args.baseline} against {args.allowed_signers} "
+            f"(scheme {args.scheme}, signer {operator!r}) before trusting it.",
+            file=sys.stderr,
+        )
+        try:
+            baseline = load_verified_baseline(
+                baseline_bytes,
+                args.signature,
+                args.allowed_signers,
+                operator=operator,
+                scheme=args.scheme,
+            )
+        except BaselineError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    else:
+        try:
+            baseline = load_baseline(baseline_text)
+        except BaselineError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
 
     # "today" is computed here, once — the staleness helper stays deterministic.
     staleness = assess_staleness(

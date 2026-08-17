@@ -1,6 +1,6 @@
 # Adversarial Test Battery
 
-> **Scope:** `tests/adversarial/` — 716 tests that treat IANUA-Broker as the
+> **Scope:** `tests/adversarial/` — 754 tests that treat IANUA-Broker as the
 > target rather than the tool. Companion to [`SPEC.md`](./SPEC.md) §8 (threat
 > model) and the NFRs it references.
 
@@ -44,11 +44,11 @@ Every test in the battery exists to defend one of these.
 | `corpus.py` | *(shared payloads — not a test module)* | — | — |
 | `test_parser_robustness.py` | Crash the scanner with the file it was asked to read | 389 | 1 |
 | `test_file_surface.py` | Attack through the filesystem: FIFO, symlink loop, escape, device, oversize | 15 | 1, 4 |
-| `test_report_integrity.py` | Make the report lie — terminal repaint, XSS, SARIF/DOT/unit-file break-out | 138 | 3 |
+| `test_report_integrity.py` | Make the report lie — terminal repaint, XSS, SARIF/DOT/unit-file break-out | 157 | 3 |
 | `test_secret_leakage.py` | Get the scanner to hand back the secrets it found | 67 | 4 |
-| `test_evasion.py` | Make the scanner go quiet about something real | 37 | 2 |
+| `test_evasion.py` | Make the scanner go quiet about something real | 55 | 2 |
 | `test_resource_limits.py` | Spend the scanner's time and memory instead of crashing it | 11 | 1 |
-| `test_isolation.py` | Use the scanner as a side effect — make it talk, or make it write | 10 | 4 |
+| `test_isolation.py` | Use the scanner as a side effect — make it talk, or make it write | 11 | 4 |
 | `test_detection_under_attack.py` | Hide something real from a scanner that is otherwise working | 36 | 2 |
 | `test_end_to_end.py` | All of the above, through the CLI, against one hostile repository | 13 | 1–4 |
 
@@ -73,8 +73,9 @@ All are fixed in the same change as the battery.
 | 7 | `lan.sanitize_remote` passed **C1 controls** through | `ch >= " "` admits U+0080–U+009F, including U+009B — the 8-bit CSI a UTF-8 terminal still acts on — despite the comment claiming C0/C1 | Explicit C1 range check |
 | 8 | **systemd unit-file injection** via a newline in a scanned path | `shlex.quote` protects a *shell*; systemd ends the `ExecStart` directive at the newline and reads the rest as directives, so `ExecStartPost=` was honoured | `ScheduleError` refusal for control characters; the CLI reports it and exits 2 |
 | 9 | Continue's YAML adapter raised a bare `ValueError` | PyYAML's scalar constructors raise `ValueError`, not `YAMLError` — an integer past CPython's 4300-digit limit escaped the handler | Catch `ValueError` alongside `YAMLError` |
-
 | 10 | The **HTML report was escaped but not inert** | `html.escape` stops script injection and stops there — a browser still honours a bidi override or a zero-width joiner, so a server name could reorder the text a reviewer reads in the artifact most likely to be forwarded to one | `_safe()` defangs via `inert_text` *before* escaping, so the HTML and terminal renderers agree on what "inert" means |
+| 11 | An installed **data-pack store stayed trusted after its permissions drifted** | `update-datapack` verifies a signature and writes the store `0600`, but nothing re-checked it on read — an umask, a restored backup, or a group-writable parent leaves the detection catalog writable by others, and whoever writes it decides what counts as a secret | Refuse a store writable by others, fall back to the built-in catalog, and report `DATAPACK-STORE-PERMS` (HIGH) rather than downgrading in silence |
+| 12 | **Drift had no defence against a deliberate baseline rewrite** | The integrity digest is a plain hash, so a forger fixes it up in the same edit; "no drift" then means nothing in exactly the setting where it is load-bearing — a shared repo in CI | Opt-in `load_verified_baseline`: a detached signature over the baseline bytes, verified before parsing, reusing `lan.verify` under an `mcpscan-baseline` namespace |
 
 Two invariants were attacked and **held** with no change needed: HTML *markup*
 escaping (no XSS survived any payload) and the JSONC comment stripper's
@@ -96,13 +97,16 @@ future narrowing of a compensating control is caught:
 - **Paraphrased prompt injection is not caught.** The phrase list is curated for
   a near-zero false-positive rate; fuzzy matching would fire on ordinary
   READMEs.
-- **The baseline digest detects corruption, not a motivated editor.** It is a
-  hash of the facts, not a MAC — anyone who can rewrite the file can recompute
-  it. A repository where an attacker rewrites committed files has a larger
-  problem than drift.
+- **An *unsigned* baseline's digest detects corruption, not a motivated editor.**
+  It is a hash of the facts, not a MAC — anyone who can rewrite the file can
+  recompute it. Where the baseline is the control, sign it: `mcpscan diff
+  --signature … --allowed-signers …` verifies a detached signature over the
+  exact bytes before parsing them, under a dedicated `mcpscan-baseline` domain.
 - **A signed data-pack is trusted to define detection.** A pack with no provider
-  patterns detects nothing; the control is the signature and the owner-only
-  store, not content inspection. The verify-or-refuse path is tested instead.
+  patterns detects nothing; the control is the signature at install time and the
+  file's ownership at rest — a store other users can **write** is refused and
+  reported (`DATAPACK-STORE-PERMS`), because whoever can write it decides what
+  counts as a secret. Content inspection is not the control, and is not claimed.
 
 ## Conventions
 

@@ -23,9 +23,12 @@ offline-by-default identity:
   never silently used.
 - ``mcpscan update-datapack`` performs that verification once and installs the
   pack into a local store; :func:`load_local_datapack` loads the installed pack
-  on later scans (structural validation only — the signature was checked at
-  install time and the store is owner-only, trusted at rest like any of the
-  user's own config).
+  on later scans. The signature is not re-checked there — it was checked at
+  install time — so what *is* re-checked is that the file is still owned as it
+  was installed: a store any other user can **write** is refused, because whoever
+  can write it decides what this scanner treats as a secret. Every refusal falls
+  back to the built-in pack, so a tampered store can never weaken detection below
+  shipping defaults.
 
 No network is ever contacted here: verification is a local ``ssh-keygen`` /
 ``ed25519`` check over a local file. The verifier is injectable so tests never
@@ -35,7 +38,9 @@ shell out.
 from __future__ import annotations
 
 import json
+import os
 import re
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -414,15 +419,47 @@ def load_verified_datapack(
     return parse_datapack(raw)
 
 
+def store_is_writable_by_others(store_path: Path) -> bool:
+    """Whether the store's POSIX mode lets anyone but the owner write it.
+
+    The permission that matters here is **write**, not read: a data-pack carries
+    no secrets, so another user reading it costs nothing — but another user
+    *writing* it redefines what this scanner considers a secret. That is the
+    strongest position an attacker can hold against a detection tool, and it
+    needs no exploit: just a group-writable directory and patience.
+
+    Windows returns False (its ``st_mode`` does not carry POSIX bits, exactly as
+    :func:`mcpscan.engine._posix_file_mode` reasons); the store's ACL is the
+    platform's business there.
+    """
+    if os.name != "posix":
+        return False
+    try:
+        return bool(stat.S_IMODE(store_path.stat().st_mode) & 0o022)
+    except OSError:
+        return False
+
+
 def load_local_datapack(store_path: Path) -> DataPack | None:
     """Load the installed store pack, or ``None`` to fall back to the built-in.
 
-    Structural validation only: the signature was verified at install time by
-    ``update-datapack`` and the store is owner-only, so it is trusted at rest like
-    any of the user's own config. A missing store, an unreadable file, or content
-    that no longer parses all return ``None`` (fall back to the built-in pack) —
-    a corrupt store can never crash a scan.
+    The signature is verified once, at install time, by ``update-datapack`` — so
+    what this function checks is that the file is still the one that was
+    installed *by its owner*. ``update-datapack`` writes the store ``0600``, but
+    permissions drift: an umask, a restored backup, a synced dotfiles repo, or a
+    group-writable parent directory can all leave it writable by others. A store
+    anyone can write is a store anyone can use to switch detection off, so it is
+    refused rather than trusted (:func:`store_is_writable_by_others`).
+
+    Every refusal — missing, unreadable, unparseable, or writable by others —
+    returns ``None``, which falls back to the **built-in** pack. That is
+    fail-safe by construction: a tampered store can weaken detection no further
+    than shipping defaults, and it can never crash a scan. The caller is
+    responsible for making the refusal visible; the engine raises a
+    ``DATAPACK-STORE-PERMS`` finding so a rejected store is not silent.
     """
+    if store_is_writable_by_others(store_path):
+        return None
     try:
         raw = store_path.read_text(encoding="utf-8")
     except OSError:
