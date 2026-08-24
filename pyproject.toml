@@ -45,7 +45,7 @@ dev = [
     # Pinned: a newer ruff started flagging RUF100 on `noqa: S1xx/S3xx`
     # directives for rules this config never enables, breaking CI on every
     # branch. Bump deliberately together with a noqa cleanup.
-    "ruff==0.16.3",
+    "ruff==0.16.4",
     "mypy",
     "types-psutil",
     "bandit",
