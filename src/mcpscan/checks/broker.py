@@ -330,8 +330,7 @@ def _evidence_mismatch_finding(manifest_path: str, reason: str) -> Finding:
         title="Broker audit-chain tip does not match declared evidence",
         location=Location(path=manifest_path),
         remediation=(
-            "Refresh broker.json evidence from the live ATB chain tip "
-            f"(verifier reason: {reason})."
+            f"Refresh broker.json evidence from the live ATB chain tip (verifier reason: {reason})."
         ),
         rationale=(
             "The declared tip id/hash does not match the readable audit chain, "

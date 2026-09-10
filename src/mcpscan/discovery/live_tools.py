@@ -30,9 +30,9 @@ def list_tools_loopback(host: str, port: int, *, timeout: float = 2.0) -> LiveTo
     if host not in {"127.0.0.1", "::1", "localhost"}:
         return LiveToolsResult(url="", ok=False, error="non_loopback_refused")
     url = f"http://{host}:{port}/mcp"
-    body = json.dumps(
-        {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
-    ).encode("utf-8")
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}).encode(
+        "utf-8"
+    )
     req = urllib.request.Request(
         url, data=body, method="POST", headers={"Content-Type": "application/json"}
     )

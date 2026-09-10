@@ -171,9 +171,10 @@ def test_wrapper_windows_path_routes() -> None:
 
 
 def test_runner_with_path_qualified_wrapper_routes() -> None:
-    assert routes_through_broker(
-        _decl("s", command="npx", args=("/usr/local/bin/ianua-atb-pep",))
-    ) is True
+    assert (
+        routes_through_broker(_decl("s", command="npx", args=("/usr/local/bin/ianua-atb-pep",)))
+        is True
+    )
 
 
 def test_runner_with_bare_wrapper_arg_does_not_route() -> None:
@@ -209,7 +210,10 @@ def test_no_manifest_silent_for_non_privileged() -> None:
 def test_no_manifest_silent_for_wrapper_routed_privileged() -> None:
     # A privileged server behind the interception wrapper needs no manifest entry.
     subjects = [
-        ("cfg#shell", _decl("shell", command="/usr/local/bin/ianua-atb-pep", auto_approve=("run_command",)))
+        (
+            "cfg#shell",
+            _decl("shell", command="/usr/local/bin/ianua-atb-pep", auto_approve=("run_command",)),
+        )
     ]
     assert check_broker_posture(subjects, None, present=False) == []
 
@@ -229,7 +233,10 @@ def test_fully_brokered_sound_manifest_is_silent() -> None:
 
 def test_wrapper_routed_privileged_with_sound_manifest_is_silent() -> None:
     subjects = [
-        ("cfg#shell", _decl("shell", command="/usr/local/bin/ianua-atb-pep", auto_approve=("run_command",)))
+        (
+            "cfg#shell",
+            _decl("shell", command="/usr/local/bin/ianua-atb-pep", auto_approve=("run_command",)),
+        )
     ]
     # Not in fronts, but intercepted at the transport -> not absent, still clean.
     assert check_broker_posture(subjects, _sound(fronts=()), present=True) == []
