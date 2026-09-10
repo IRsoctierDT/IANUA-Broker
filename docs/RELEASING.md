@@ -28,6 +28,8 @@ command remain `mcpscan`.
 
 ## Each release
 
+**Do not hand-edit** `[project].version` in `pyproject.toml`, `.release-please-manifest.json`, or invent a dated `## [x.y.z]` CHANGELOG section on a feature branch. That fights release-please (manifest drift). Put notes under `## [Unreleased]` if you must; the release PR materializes the versioned section.
+
 Releases are driven by [Conventional Commits](https://www.conventionalcommits.org/):
 `feat:` bumps the minor version, `fix:` the patch, and a `!`/`BREAKING CHANGE`
 bumps the major. You never edit the version in `pyproject.toml` by hand.
