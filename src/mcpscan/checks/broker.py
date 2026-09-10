@@ -16,11 +16,17 @@ scanner's own tool-scope predicates (:func:`is_dangerous_tool` /
 :func:`has_broad_wildcard` over ``autoApprove``), so the governance view never
 diverges from what ``scan``/``trust`` already flag. The manifest carries no
 secrets; only these non-secret posture fields are read.
+
+v1.6+: good postures and non-empty ``fronts`` require an ``evidence`` block
+binding claims to an ATB audit-chain tip id + tip hash (honor-system enums
+alone cannot grade clean). Wrapper detection requires a path-qualified
+``ianua-atb`` binary (not a bare spoofable basename).
 """
 
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -28,9 +34,6 @@ from ..adapters.base import ServerDecl
 from ..domain import Dimension, Finding, Location, Severity
 from .tool_scope import has_broad_wildcard, is_dangerous_tool
 
-# Configurable manifest postures. A missing or unknown value normalizes to the
-# WORSE posture at parse time, so a manifest can never grade better than it
-# verifiably is (fail-closed).
 _ALLOWLIST_GOOD = "least_privilege"
 _ALLOWLIST_BAD = "wildcard"
 _MANIFESTS_GOOD = "signed"
@@ -38,34 +41,35 @@ _MANIFESTS_BAD = "unverified"
 _AUDIT_GOOD = "enabled"
 _AUDIT_BAD = "off"
 
-# Interception wrapper: a server whose launch command (or, when that command is a
-# runner, its first arg) has a basename that is or starts with this token is
-# mediated at the transport by the broker's policy-enforcement point (PEP), so
-# its privileged tools run behind the broker even without a manifest entry.
-_WRAPPER_PREFIX = "ianua-atb"
+# Exact wrapper basenames (optional -pep/-gateway suffix, optional .exe).
+_WRAPPER_BASENAME = re.compile(r"^ianua-atb(-[a-z0-9._]+)?(\.exe)?$", re.IGNORECASE)
 
-# Launchers that run their first argument as the real program, so the wrapper may
-# sit in ``args[0]`` rather than in ``command`` itself.
 _RUNNERS = frozenset(
     {"npx", "pnpx", "bunx", "uvx", "uv", "pipx", "node", "python", "python3", "sh", "bash", "env"}
 )
 
+_TIP_HASH = re.compile(r"^[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True)
+class BrokerEvidence:
+    """Cryptographic tip binding for claimed broker posture (non-secret)."""
+
+    expect_tip: str
+    expect_tip_hash: str
+    chain_path: str = ""
+
 
 @dataclass(frozen=True)
 class BrokerManifest:
-    """The non-secret posture fields of a parsed ATB broker manifest.
-
-    ``fronts`` holds ``location#name`` subject ids (the same identity the trust
-    engine uses). The three posture fields are always one of their known-good or
-    known-bad values — :func:`parse_broker_manifest` normalizes anything else to
-    the worse posture, so the grader compares against exact strings.
-    """
+    """The non-secret posture fields of a parsed ATB broker manifest."""
 
     schema_version: str
     fronts: tuple[str, ...]
     allowlist: str
     tool_manifests: str
     audit_log: str
+    evidence: BrokerEvidence | None = None
 
 
 @dataclass(frozen=True)
@@ -76,32 +80,36 @@ class BrokerParseError:
 
 
 def _normalize(value: object, good: str, bad: str) -> str:
-    """Keep a known-good posture value; map anything else to the worse posture.
-
-    Implements "unknown enum values tolerated but graded as the worse posture":
-    a missing or unrecognized field can never make the broker look better than it
-    verifiably is.
-    """
     return good if value == good else bad
 
 
-def parse_broker_manifest(raw: str) -> BrokerManifest | BrokerParseError:
-    """Parse a broker manifest fail-closed. Never raises.
+def _parse_evidence(raw: object) -> BrokerEvidence | None:
+    if not isinstance(raw, dict):
+        return None
+    tip = raw.get("expect_tip")
+    tip_hash = raw.get("expect_tip_hash")
+    if not isinstance(tip, str) or not tip or "\x00" in tip:
+        return None
+    if not isinstance(tip_hash, str) or not _TIP_HASH.fullmatch(tip_hash.lower()):
+        return None
+    chain = raw.get("chain_path")
+    chain_path = str(chain) if isinstance(chain, str) else ""
+    if "\x00" in chain_path:
+        chain_path = ""
+    return BrokerEvidence(
+        expect_tip=tip,
+        expect_tip_hash=tip_hash.lower(),
+        chain_path=chain_path,
+    )
 
-    Malformed JSON or a non-object top level degrades to a
-    :class:`BrokerParseError` (→ ``BROKER-PARSE-ERROR``). A well-formed object
-    with missing or unknown posture values parses successfully, but each such
-    value is normalized to the worse posture so the grader treats an
-    unverifiable broker as the more dangerous one.
-    """
+
+def parse_broker_manifest(raw: str) -> BrokerManifest | BrokerParseError:
+    """Parse a broker manifest fail-closed. Never raises."""
     try:
         data = json.loads(raw)
     except (ValueError, json.JSONDecodeError):
         return BrokerParseError("broker.json is not valid JSON")
     except RecursionError:
-        # Deeply-nested JSON (under the io_safe size cap) overflows the decoder's
-        # recursion; that is hostile input, not a crash. RecursionError is a
-        # RuntimeError, not a ValueError, so it needs its own guard.
         return BrokerParseError("broker.json nesting is too deep to parse")
     if not isinstance(data, dict):
         return BrokerParseError("broker.json is not a JSON object")
@@ -114,51 +122,49 @@ def parse_broker_manifest(raw: str) -> BrokerManifest | BrokerParseError:
         allowlist=_normalize(data.get("allowlist"), _ALLOWLIST_GOOD, _ALLOWLIST_BAD),
         tool_manifests=_normalize(data.get("tool_manifests"), _MANIFESTS_GOOD, _MANIFESTS_BAD),
         audit_log=_normalize(data.get("audit_log"), _AUDIT_GOOD, _AUDIT_BAD),
+        evidence=_parse_evidence(data.get("evidence")),
     )
 
 
 def _basename(token: str) -> str:
-    """Basename of a launch token, separator-agnostic (POSIX and Windows)."""
     return token.replace("\\", "/").rsplit("/", 1)[-1]
 
 
-def routes_through_broker(server: ServerDecl) -> bool:
-    """True if the server's transport is mediated by the ATB interception wrapper.
+def _is_path_qualified(token: str) -> bool:
+    """True when the token includes a directory separator (spoof-resistant)."""
+    return "/" in token or "\\" in token
 
-    A privileged server behind the wrapper runs its tools through the broker's
-    policy-enforcement point even without a manifest ``fronts`` entry, so it is
-    not "unbrokered". The wrapper is recognized by a launch basename that is or
-    starts with ``ianua-atb`` — either as the command itself, or (when the
-    command is a known runner/launcher) as the runner's first argument.
+
+def _is_wrapper_token(token: str) -> bool:
+    """Path-qualified basename matching the closed ianua-atb wrapper set."""
+    if not token or not _is_path_qualified(token):
+        return False
+    return _WRAPPER_BASENAME.fullmatch(_basename(token)) is not None
+
+
+def routes_through_broker(server: ServerDecl) -> bool:
+    """True if transport is mediated by a path-qualified ianua-atb wrapper.
+
+    Bare basenames (``ianua-atb-pep`` with no path) are rejected — a hostile
+    config can place any executable on PATH under that name. The wrapper must
+    appear as an absolute or relative path in ``command``, or as a
+    path-qualified first argument to a known runner.
     """
     command = server.command or ""
-    if _basename(command).startswith(_WRAPPER_PREFIX):
+    if _is_wrapper_token(command):
         return True
     if _basename(command) in _RUNNERS and server.args:
-        return _basename(server.args[0]).startswith(_WRAPPER_PREFIX)
+        return _is_wrapper_token(server.args[0])
     return False
 
 
 def is_privileged(server: ServerDecl) -> bool:
-    """True if the server holds a dangerous or wildcard auto-approve grant.
-
-    Reuses the scanner's own tool-scope predicates so the governance view of
-    "privileged" is exactly what ``scan``/``trust`` already flag — the two can
-    never diverge.
-    """
     return any(
         is_dangerous_tool(entry) or has_broad_wildcard(entry) for entry in server.auto_approve
     )
 
 
 def _canonical_subject(value: str, home: str | None) -> str:
-    """Normalize a subject id / front entry for comparison.
-
-    Separators are made agnostic and a leading ``~`` is expanded to ``home`` (the
-    documented manifest example writes ``~/.mcp.json#shell`` while the trust
-    engine discovers absolute ``location#name`` ids, so both must canonicalize to
-    the same form for a correct match).
-    """
     normalized = value.replace("\\", "/")
     if home and (normalized == "~" or normalized.startswith("~/")):
         normalized = home.replace("\\", "/").rstrip("/") + normalized[1:]
@@ -166,16 +172,41 @@ def _canonical_subject(value: str, home: str | None) -> str:
 
 
 def _subject_matches_front(subject: str, front: str, home: str | None) -> bool:
-    """Whether a discovered subject id is named by a manifest ``fronts`` entry.
-
-    Both sides are ``location#name`` subject ids (the identity the trust engine
-    uses). Compared for exact equality after canonicalization (separators and a
-    leading ``~``): the contract (ATB_POSTURE_CHECK.md §2) is that ``fronts``
-    carries exactly these subject ids, so a confident match is used rather than a
-    fuzzy near-miss that could mark a server "fronted" and hide a real
-    ``BROKER-ABSENT``.
-    """
     return _canonical_subject(subject, home) == _canonical_subject(front, home)
+
+
+def claims_governance(manifest: BrokerManifest) -> bool:
+    """True when the manifest asserts fronting or any known-good posture."""
+    if manifest.fronts:
+        return True
+    return (
+        manifest.allowlist == _ALLOWLIST_GOOD
+        or manifest.tool_manifests == _MANIFESTS_GOOD
+        or manifest.audit_log == _AUDIT_GOOD
+    )
+
+
+def verify_chain_tip(chain_text: str, evidence: BrokerEvidence) -> str | None:
+    """Return None if the JSONL chain tip matches evidence; else a closed reason.
+
+    Expects ATB-style JSONL records with ``decision_id`` and ``record_hash``.
+    """
+    lines = [ln for ln in chain_text.splitlines() if ln.strip()]
+    if not lines:
+        return "empty_chain"
+    try:
+        body = json.loads(lines[-1])
+    except (ValueError, json.JSONDecodeError, RecursionError):
+        return "tip_unparseable"
+    if not isinstance(body, dict):
+        return "tip_not_object"
+    tip_id = body.get("decision_id")
+    tip_hash = body.get("record_hash")
+    if tip_id != evidence.expect_tip:
+        return "tip_id_mismatch"
+    if not isinstance(tip_hash, str) or tip_hash.lower() != evidence.expect_tip_hash:
+        return "tip_hash_mismatch"
+    return None
 
 
 def _absent_finding(subject_id: str, name: str) -> Finding:
@@ -187,9 +218,9 @@ def _absent_finding(subject_id: str, name: str) -> Finding:
         location=Location(path=subject_id),
         remediation=(
             "Front this server with an Agent Trust Broker (add its subject id to "
-            "the broker manifest's 'fronts', or route it through the ianua-atb "
-            "interception wrapper), or remove the dangerous/wildcard auto-approve "
-            "grant that makes it privileged."
+            "the broker manifest's 'fronts', or route it through a path-qualified "
+            "ianua-atb interception wrapper), or remove the dangerous/wildcard "
+            "auto-approve grant that makes it privileged."
         ),
         rationale=(
             "A privileged agent tool with no broker in front of it has no "
@@ -271,6 +302,44 @@ def _parse_error_finding(manifest_path: str) -> Finding:
     )
 
 
+def _evidence_missing_finding(manifest_path: str) -> Finding:
+    return Finding(
+        id="BROKER-EVIDENCE-MISSING",
+        dimension=Dimension.TOOL_SCOPE,
+        severity=Severity.HIGH,
+        title="Broker posture claims lack audit-chain tip evidence",
+        location=Location(path=manifest_path),
+        remediation=(
+            "Add an evidence block with expect_tip and expect_tip_hash (64-hex "
+            "record hash of the ATB audit tip). Prefer chain_path so mcpscan can "
+            "verify the tip against the local chain."
+        ),
+        rationale=(
+            "Allowlist/manifest/audit enums are self-attested. Without a tip "
+            "binding, a hostile broker.json can claim a sound broker that does "
+            "not exist."
+        ),
+    )
+
+
+def _evidence_mismatch_finding(manifest_path: str, reason: str) -> Finding:
+    return Finding(
+        id="BROKER-EVIDENCE-MISMATCH",
+        dimension=Dimension.TOOL_SCOPE,
+        severity=Severity.HIGH,
+        title="Broker audit-chain tip does not match declared evidence",
+        location=Location(path=manifest_path),
+        remediation=(
+            "Refresh broker.json evidence from the live ATB chain tip "
+            f"(verifier reason: {reason})."
+        ),
+        rationale=(
+            "The declared tip id/hash does not match the readable audit chain, "
+            "so posture claims are not bound to running evidence."
+        ),
+    )
+
+
 def check_broker_posture(
     subjects: Sequence[tuple[str, ServerDecl]],
     manifest_or_error: BrokerManifest | BrokerParseError | None,
@@ -278,40 +347,20 @@ def check_broker_posture(
     *,
     manifest_path: str = "broker.json",
     home: str | None = None,
+    chain_verify_reason: str | None = None,
 ) -> list[Finding]:
-    """Grade broker posture over the discovered declared servers. Pure and total.
+    """Grade broker posture over discovered declared servers. Pure and total.
 
-    Args:
-        subjects: ``(subject_id, decl)`` for every discovered *declared* server
-            (config servers, not sockets). ``subject_id`` is the trust engine's
-            ``location#name`` identity; ``decl`` supplies the privilege and
-            interception-wrapper predicates.
-        manifest_or_error: the parsed manifest, a parse error, or ``None`` when no
-            manifest file is present.
-        present: whether a ``broker.json`` file exists at all. ``False`` means no
-            manifest — every privileged, non-intercepted server is
-            ``BROKER-ABSENT`` and no manifest-quality finding is emitted.
-        manifest_path: the manifest's path, used as the location for the
-            manifest-quality and parse-error findings.
-
-    Returns:
-        Findings under ``Dimension.TOOL_SCOPE``. The fully-brokered, sound case
-        (every privileged server fronted or intercepted; least-privilege
-        allowlist; signed manifests; audit log enabled) yields ``[]`` — the
-        positive case grades clean, which is the point of a governance tier.
+    ``chain_verify_reason`` is set by the engine when tip verification ran and
+    failed (or the chain was unreadable); ``None`` means not attempted.
     """
     manifest = manifest_or_error if isinstance(manifest_or_error, BrokerManifest) else None
     fronts = manifest.fronts if manifest is not None else ()
     findings: list[Finding] = []
 
-    # A malformed manifest verifies nothing: it degrades to a LOW finding and is
-    # treated as fronting nothing, so privileged servers below still surface as
-    # BROKER-ABSENT (the conservative governance direction — never hide a gap).
     if present and isinstance(manifest_or_error, BrokerParseError):
         findings.append(_parse_error_finding(manifest_path))
 
-    # BROKER-ABSENT: a privileged server that no manifest fronts and that does not
-    # route through the interception wrapper has no reference monitor.
     fronted_privileged = False
     for subject_id, decl in subjects:
         if not is_privileged(decl):
@@ -323,8 +372,11 @@ def check_broker_posture(
             continue
         findings.append(_absent_finding(subject_id, decl.name))
 
-    # Manifest-quality findings fire only for a well-formed manifest.
     if manifest is not None:
+        if claims_governance(manifest) and manifest.evidence is None:
+            findings.append(_evidence_missing_finding(manifest_path))
+        if chain_verify_reason is not None:
+            findings.append(_evidence_mismatch_finding(manifest_path, chain_verify_reason))
         if fronted_privileged and manifest.tool_manifests == _MANIFESTS_BAD:
             findings.append(_unverified_finding(manifest_path))
         if manifest.audit_log == _AUDIT_BAD:

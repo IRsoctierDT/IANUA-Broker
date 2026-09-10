@@ -1,0 +1,39 @@
+name: Signed baseline dogfood
+
+# Proves the CI drift path with --require-baseline-signature using an ephemeral
+# SSH signing key (never uploaded). Complements mcpscan.yml SARIF upload.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  signed-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: python -m pip install --upgrade pip && python -m pip install .
+      - name: Ephemeral signing key + signed baseline round-trip
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/mcpscan-ci
+          ssh-keygen -t ed25519 -f /tmp/mcpscan-ci/ci -N "" -C "mcpscan-ci"
+          # allowedSigners format: principals namespaces flags keytype key
+          echo "mcpscan-ci namespaces=\"mcpscan-baseline\" $(cat /tmp/mcpscan-ci/ci.pub)" > /tmp/mcpscan-ci/allowed
+          mcpscan baseline --out /tmp/mcpscan-ci/base.json --no-inventory || mcpscan baseline --out /tmp/mcpscan-ci/base.json
+          ssh-keygen -Y sign -f /tmp/mcpscan-ci/ci -n mcpscan-baseline /tmp/mcpscan-ci/base.json
+          mcpscan diff --baseline /tmp/mcpscan-ci/base.json \
+            --signature /tmp/mcpscan-ci/base.json.sig \
+            --allowed-signers /tmp/mcpscan-ci/allowed \
+            --signer mcpscan-ci \
+            --require-baseline-signature \
+            --no-inventory || true

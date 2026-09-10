@@ -33,6 +33,7 @@ from .checks.broker import (
     BrokerParseError,
     check_broker_posture,
     parse_broker_manifest,
+    verify_chain_tip,
 )
 from .checks.config_health import check_config_readable
 from .checks.datapack_health import check_datapack_store
@@ -75,7 +76,7 @@ from .discovery.process_env import iter_agent_process_envs, looks_like_agent
 from .discovery.sockets import EnumerationResult, enumerate_listening
 from .domain import Finding, Report, Server, ServerState
 from .io_safe import SafeReadError, safe_read_text
-from .scoring import dimension_grades, grade_findings, worst_grade
+from .scoring import dimension_grades, grade_server, worst_grade
 
 # "1.1": findings gained the optional "acceptance" object (Wave 1 Feature D —
 # named-human, expiring risk acceptances; see mcpscan.acceptance).
@@ -543,12 +544,28 @@ def _audit_broker(
         display_path = "broker.json"
 
     home = env.get("HOME") or env.get("USERPROFILE")
+    chain_reason: str | None = None
+    if isinstance(parsed, BrokerManifest) and parsed.evidence is not None:
+        chain_path = parsed.evidence.chain_path.strip()
+        if chain_path:
+            # Tip verification is assessment-only: read via the same safe reader.
+            chain_file = Path(chain_path).expanduser()
+            raw_chain = _read_config_file(chain_file)
+            if raw_chain is None:
+                chain_reason = "chain_unreadable"
+            else:
+                chain_reason = verify_chain_tip(raw_chain, parsed.evidence)
     findings = check_broker_posture(
-        subjects, parsed, present, manifest_path=display_path, home=home
+        subjects,
+        parsed,
+        present,
+        manifest_path=display_path,
+        home=home,
+        chain_verify_reason=chain_reason,
     )
     if not findings:
         return []
-    incomplete = isinstance(parsed, BrokerParseError)
+    incomplete = isinstance(parsed, BrokerParseError) or chain_reason is not None
     return [
         Server(
             id=f"broker://{display_path}",
@@ -861,7 +878,7 @@ def _assemble_report(servers: Sequence[Server], *, online: bool = False) -> Repo
             for s in servers
         ]
     all_findings = [f for s in servers for f in s.findings]
-    server_grades = [grade_findings(s.findings) for s in servers]
+    server_grades = [grade_server(s) for s in servers]
     return Report(
         schema_version=SCHEMA_VERSION,
         servers=tuple(servers),

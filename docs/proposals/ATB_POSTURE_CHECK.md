@@ -130,3 +130,21 @@ the governance view never diverges from what `scan`/`trust` already flag.
    `TOOL_PRIVILEGE` predicate, the `io_safe` reader, and the adapter/atlas seams.
 
 Nothing in step 3 lands until step 2 pins the contract; this note is the map.
+
+
+## Amendment — evidence tip binding (v1.6)
+
+A well-formed manifest that asserts fronts or any known-good posture enum MUST
+include:
+
+```json
+"evidence": {
+  "expect_tip": "ATB-DEC-000123",
+  "expect_tip_hash": "<64-hex record_hash>",
+  "chain_path": "/optional/path/to/audit.jsonl"
+}
+```
+
+Missing evidence → `BROKER-EVIDENCE-MISSING` (HIGH). When `chain_path` is set,
+mcpscan verifies the tip fail-closed (`BROKER-EVIDENCE-MISMATCH` on failure).
+Wrapper recognition requires a path-qualified `ianua-atb` binary (not a bare PATH name).

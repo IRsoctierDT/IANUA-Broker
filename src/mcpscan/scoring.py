@@ -4,13 +4,16 @@
 
 Pure functions: identical findings always yield identical grades. Each server
 starts at 100, loses points per finding by severity weight, and maps to A-F.
+
+Incomplete inspection cannot grade clean: an ``inspection_incomplete`` server
+is capped at **C** so a surface never inspected cannot claim A/B.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 
-from .domain import Dimension, Finding
+from .domain import Dimension, Finding, Server
 
 _MAX_SCORE = 100
 _GRADE_BANDS: tuple[tuple[int, str], ...] = (
@@ -20,6 +23,11 @@ _GRADE_BANDS: tuple[tuple[int, str], ...] = (
     (60, "D"),
 )
 _FAIL_GRADE = "F"
+# Cap when the scanner could not fully inspect the server (CONFIG-UNREADABLE,
+# permission-denied sockets, malformed broker manifest, …). A/B would imply a
+# completed audit the operator did not get.
+_INCOMPLETE_CAP = "C"
+_GRADE_ORDER = "ABCDEF"
 
 
 def score_findings(findings: Iterable[Finding]) -> int:
@@ -39,6 +47,19 @@ def grade_for_score(score: int) -> str:
 def grade_findings(findings: Iterable[Finding]) -> str:
     """Convenience: grade a set of findings directly."""
     return grade_for_score(score_findings(list(findings)))
+
+
+def _cap_grade(grade: str, cap: str) -> str:
+    """Return the worse of ``grade`` and ``cap`` (A best … F worst)."""
+    return grade if _GRADE_ORDER.index(grade) >= _GRADE_ORDER.index(cap) else cap
+
+
+def grade_server(server: Server) -> str:
+    """Grade one server; incomplete inspection cannot score above C."""
+    grade = grade_findings(server.findings)
+    if server.inspection_incomplete:
+        return _cap_grade(grade, _INCOMPLETE_CAP)
+    return grade
 
 
 def worst_grade(grades: Iterable[str]) -> str:
