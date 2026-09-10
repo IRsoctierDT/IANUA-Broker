@@ -13,12 +13,14 @@ import json
 
 from mcpscan.adapters.base import ServerDecl
 from mcpscan.checks.broker import (
+    BrokerEvidence,
     BrokerManifest,
     BrokerParseError,
     check_broker_posture,
     is_privileged,
     parse_broker_manifest,
     routes_through_broker,
+    verify_chain_tip,
 )
 from mcpscan.domain import Dimension, Severity
 
@@ -33,6 +35,13 @@ def _decl(
     return ServerDecl(name=name, command=command, args=args, auto_approve=auto_approve)
 
 
+_TIP = "a" * 64
+
+
+def _evidence() -> BrokerEvidence:
+    return BrokerEvidence(expect_tip="ATB-DEC-000001", expect_tip_hash=_TIP)
+
+
 def _sound(fronts: tuple[str, ...]) -> BrokerManifest:
     return BrokerManifest(
         schema_version="1.0",
@@ -40,6 +49,7 @@ def _sound(fronts: tuple[str, ...]) -> BrokerManifest:
         allowlist="least_privilege",
         tool_manifests="signed",
         audit_log="enabled",
+        evidence=_evidence(),
     )
 
 
@@ -147,8 +157,9 @@ def test_is_not_privileged_with_no_autoapprove() -> None:
 
 
 # --- routes_through_broker --------------------------------------------------
-def test_wrapper_as_command_routes() -> None:
-    assert routes_through_broker(_decl("s", command="ianua-atb-pep")) is True
+def test_wrapper_bare_basename_does_not_route() -> None:
+    # Bare names are spoofable via PATH; require a path-qualified token.
+    assert routes_through_broker(_decl("s", command="ianua-atb-pep")) is False
 
 
 def test_wrapper_with_path_prefix_routes() -> None:
@@ -159,8 +170,15 @@ def test_wrapper_windows_path_routes() -> None:
     assert routes_through_broker(_decl("s", command=r"C:\tools\ianua-atb.exe")) is True
 
 
-def test_runner_with_wrapper_first_arg_routes() -> None:
-    assert routes_through_broker(_decl("s", command="npx", args=("ianua-atb-pep",))) is True
+def test_runner_with_path_qualified_wrapper_routes() -> None:
+    assert (
+        routes_through_broker(_decl("s", command="npx", args=("/usr/local/bin/ianua-atb-pep",)))
+        is True
+    )
+
+
+def test_runner_with_bare_wrapper_arg_does_not_route() -> None:
+    assert routes_through_broker(_decl("s", command="npx", args=("ianua-atb-pep",))) is False
 
 
 def test_plain_runner_does_not_route() -> None:
@@ -192,7 +210,10 @@ def test_no_manifest_silent_for_non_privileged() -> None:
 def test_no_manifest_silent_for_wrapper_routed_privileged() -> None:
     # A privileged server behind the interception wrapper needs no manifest entry.
     subjects = [
-        ("cfg#shell", _decl("shell", command="ianua-atb-pep", auto_approve=("run_command",)))
+        (
+            "cfg#shell",
+            _decl("shell", command="/usr/local/bin/ianua-atb-pep", auto_approve=("run_command",)),
+        )
     ]
     assert check_broker_posture(subjects, None, present=False) == []
 
@@ -212,7 +233,10 @@ def test_fully_brokered_sound_manifest_is_silent() -> None:
 
 def test_wrapper_routed_privileged_with_sound_manifest_is_silent() -> None:
     subjects = [
-        ("cfg#shell", _decl("shell", command="ianua-atb-pep", auto_approve=("run_command",)))
+        (
+            "cfg#shell",
+            _decl("shell", command="/usr/local/bin/ianua-atb-pep", auto_approve=("run_command",)),
+        )
     ]
     # Not in fronts, but intercepted at the transport -> not absent, still clean.
     assert check_broker_posture(subjects, _sound(fronts=()), present=True) == []
@@ -241,6 +265,7 @@ def test_unverified_fires_when_fronting_a_privileged_server() -> None:
         allowlist="least_privilege",
         tool_manifests="unverified",
         audit_log="enabled",
+        evidence=_evidence(),
     )
     ids = [f.id for f in check_broker_posture(subjects, manifest, present=True)]
     assert ids == ["BROKER-MANIFEST-UNVERIFIED"]
@@ -258,6 +283,7 @@ def test_unverified_does_not_fire_without_a_fronted_privileged_server() -> None:
         allowlist="least_privilege",
         tool_manifests="unverified",
         audit_log="enabled",
+        evidence=_evidence(),
     )
     ids = {f.id for f in check_broker_posture(subjects, manifest, present=True)}
     assert ids == {"BROKER-ABSENT"}
@@ -271,6 +297,7 @@ def test_no_audit_fires_on_manifest_present() -> None:
         allowlist="least_privilege",
         tool_manifests="signed",
         audit_log="off",
+        evidence=_evidence(),
     )
     findings = check_broker_posture(subjects, manifest, present=True)
     assert [f.id for f in findings] == ["BROKER-NO-AUDIT"]
@@ -285,6 +312,7 @@ def test_permissive_allowlist_fires() -> None:
         allowlist="wildcard",
         tool_manifests="signed",
         audit_log="enabled",
+        evidence=_evidence(),
     )
     findings = check_broker_posture(subjects, manifest, present=True)
     assert [f.id for f in findings] == ["BROKER-ALLOWLIST-PERMISSIVE"]
@@ -299,6 +327,7 @@ def test_worst_case_manifest_fires_every_quality_finding() -> None:
         allowlist="wildcard",
         tool_manifests="unverified",
         audit_log="off",
+        evidence=_evidence(),
     )
     ids = {f.id for f in check_broker_posture(subjects, manifest, present=True)}
     assert ids == {
@@ -350,7 +379,43 @@ def test_all_broker_findings_are_tool_scope() -> None:
         allowlist="wildcard",
         tool_manifests="unverified",
         audit_log="off",
+        evidence=_evidence(),
     )
     findings = check_broker_posture(subjects, manifest, present=True)
     assert findings  # sanity: several findings present
     assert all(f.dimension is Dimension.TOOL_SCOPE for f in findings)
+
+
+# --- evidence binding -------------------------------------------------------
+def test_governance_without_evidence_flags_missing() -> None:
+    subjects = [("cfg#shell", _decl("shell", auto_approve=("run_command",)))]
+    manifest = BrokerManifest(
+        schema_version="1.0",
+        fronts=("cfg#shell",),
+        allowlist="least_privilege",
+        tool_manifests="signed",
+        audit_log="enabled",
+        evidence=None,
+    )
+    ids = {f.id for f in check_broker_posture(subjects, manifest, present=True)}
+    assert "BROKER-EVIDENCE-MISSING" in ids
+
+
+def test_verify_chain_tip_accepts_matching_tip() -> None:
+    ev = _evidence()
+    line = json.dumps({"decision_id": ev.expect_tip, "record_hash": ev.expect_tip_hash})
+    assert verify_chain_tip(line + "\n", ev) is None
+
+
+def test_verify_chain_tip_rejects_mismatch() -> None:
+    ev = _evidence()
+    line = json.dumps({"decision_id": "ATB-DEC-999999", "record_hash": ev.expect_tip_hash})
+    assert verify_chain_tip(line, ev) == "tip_id_mismatch"
+
+
+def test_chain_verify_reason_surfaces_mismatch_finding() -> None:
+    subjects = [("cfg#shell", _decl("shell", auto_approve=("run_command",)))]
+    findings = check_broker_posture(
+        subjects, _sound(("cfg#shell",)), present=True, chain_verify_reason="tip_hash_mismatch"
+    )
+    assert any(f.id == "BROKER-EVIDENCE-MISMATCH" for f in findings)

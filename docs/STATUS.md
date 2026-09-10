@@ -4,7 +4,7 @@ Human-readable view of [`STATUS.yaml`](./STATUS.yaml) (the source of truth). Kee
 the two in sync when a ticket changes state. Tickets and acceptance criteria are
 defined in [`BACKLOG.md`](./BACKLOG.md); requirements in [`SPEC.md`](./SPEC.md).
 
-- **Updated:** 2026-06-28
+- **Updated:** 2026-09-10 (v1.6.0 adversarial-hardening slice)
 - **Test coverage:** 98% line (gate: `fail_under = 90` in `pyproject.toml`)
 
 **Status legend**

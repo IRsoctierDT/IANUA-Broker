@@ -823,6 +823,10 @@ def test_broker_sound_manifest_clears_absent(tmp_path: Path) -> None:
             "allowlist": "least_privilege",
             "tool_manifests": "signed",
             "audit_log": "enabled",
+            "evidence": {
+                "expect_tip": "ATB-DEC-000001",
+                "expect_tip_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            },
         },
     )
     report = scan(
@@ -887,6 +891,10 @@ def test_broker_manifest_quality_findings_surface(tmp_path: Path) -> None:
             "allowlist": "wildcard",
             "tool_manifests": "unverified",
             "audit_log": "off",
+            "evidence": {
+                "expect_tip": "ATB-DEC-000001",
+                "expect_tip_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            },
         },
     )
     report = scan(

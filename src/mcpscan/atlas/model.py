@@ -207,6 +207,24 @@ MAPPINGS: dict[str, tuple[FrameworkRef, ...]] = {
     "BROKER-NO-AUDIT": (_IMPAIR_LOGGING, _RMF_GOVERN, _CIS_AUDIT_LOG),
     "BROKER-ALLOWLIST-PERMISSIVE": (_ELEVATION, _LLM_AGENCY, _RMF_GOVERN, _CIS_ACCESS),
     "BROKER-PARSE-ERROR": (_IMPAIR_DEFENSES, _RMF_GOVERN, _CIS_CONFIG),
+    # Tip evidence: good postures without a bound audit tip are self-attested
+    # governance (defence evasion via an unverifiable broker claim).
+    "BROKER-EVIDENCE-MISSING": (
+        _IMPAIR_DEFENSES,
+        _ATLAS_PROMPT_INJECTION,
+        _LLM_AGENCY,
+        _RMF_GOVERN,
+        _CIS_CONFIG,
+    ),
+    # Tip mismatch: declared tip id/hash does not match the readable chain —
+    # the manifest is impersonating a sound broker.
+    "BROKER-EVIDENCE-MISMATCH": (
+        _IMPERSONATION,
+        _IMPAIR_DEFENSES,
+        _ATLAS_PROMPT_INJECTION,
+        _RMF_GOVERN,
+        _CIS_AUDIT_LOG,
+    ),
     # Inspection health: a host config the scanner could not read or parse. Maps
     # to Impair Defenses because an unparseable config is a defence-evasion
     # primitive — the surface goes un-inspected while the host may still load it.

@@ -6,7 +6,7 @@
 
 **Status:** Stable (`v1.x`) — safe to run (read-only, offline by default), with
 a stable CLI surface, JSON schema, and check ids covered by semver. CLI
-command: `mcpscan`. License: Apache-2.0.
+command: `mcpscan`. License: Apache-2.0. Build spawn map: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## What it does
 

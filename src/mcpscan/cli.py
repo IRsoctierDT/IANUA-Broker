@@ -178,6 +178,14 @@ def build_parser() -> argparse.ArgumentParser:
             "(reads nothing extra)."
         ),
     )
+    parser.add_argument(
+        "--inspect-live-tools",
+        action="store_true",
+        help=(
+            "Opt-in: loopback-only MCP tools/list against discovered local "
+            "ports (disclosed local RPC; still no LAN/WAN). Experimental."
+        ),
+    )
 
     emit = parser.add_argument_group(
         "emit", "Alert emission (used with 'scan' / 'diff'): push a REDACTED summary to a sink."
@@ -247,6 +255,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "diff: exit non-zero when the baseline is older than --max-age-days "
             "(explicit opt-in; without it a stale baseline only warns)."
+        ),
+    )
+    drift.add_argument(
+        "--require-baseline-signature",
+        action="store_true",
+        help=(
+            "diff: refuse unsigned baselines (require --signature and "
+            "--allowed-signers). Recommended for CI drift gates."
         ),
     )
     drift.add_argument(
@@ -571,6 +587,13 @@ def _run_diff(args: argparse.Namespace) -> int:
     # Opt-in signature verification. Half a configuration is a trap — an operator
     # who passes only one of the two flags believes the baseline is verified when
     # it is not — so the pair is required together rather than silently ignored.
+    require_sig = bool(getattr(args, "require_baseline_signature", False))
+    if require_sig and args.signature is None and args.allowed_signers is None:
+        print(
+            "error: --require-baseline-signature needs --signature and --allowed-signers",
+            file=sys.stderr,
+        )
+        return 2
     if args.signature is not None or args.allowed_signers is not None:
         if args.signature is None or args.allowed_signers is None:
             print(

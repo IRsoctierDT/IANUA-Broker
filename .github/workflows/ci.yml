@@ -29,6 +29,9 @@ jobs:
           python -m pip install -e ".[dev]"
       - name: Lint (ruff)
         run: ruff check .
+      # Keep this a one-liner: matrix includes windows-latest (pwsh). Bash
+      # `if !` here is what red'd the Windows cells. Guidance lives in CONTRIBUTING
+      # + tools/gate.sh / pre-commit (apply format before push).
       - name: Format check (ruff)
         run: ruff format --check .
       - name: Type check (mypy)

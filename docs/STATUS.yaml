@@ -18,9 +18,9 @@
 # requirements in docs/SPEC.md; see docs/BACKLOG.md for full acceptance criteria.
 
 meta:
-  product: AI Agentic MCPscan
+  product: IANUA-Broker (mcpscan)
   cli: mcpscan
-  updated: "2026-06-28"
+  updated: "2026-09-10"
   source_of_truth: docs/STATUS.yaml
   view: docs/STATUS.md
   test_coverage: "98% line (gate: fail_under=90 in pyproject.toml)"

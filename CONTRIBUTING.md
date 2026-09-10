@@ -14,16 +14,34 @@ python -m pip install -e ".[dev]"
 
 ## Run the full gate before opening a PR
 
+**Root cause of the common red CI matrix:** commits that never ran `ruff format`
+(API pushes, skipped hooks, or only running `format --check`). CI then fails
+`ruff format --check` on every OS/Python cell before pytest starts.
+
+Do this instead:
+
 ```bash
-ruff check .            # lint
-ruff format --check .   # formatting
-mypy src                # types (strict)
-bandit -r src           # SAST
-pytest                  # tests
+# one-time — installs a commit hook that auto-formats
+python -m pip install pre-commit
+pre-commit install
+
+# every change — apply format, then verify (or just:)
+./tools/gate.sh
 ```
 
-CI runs the same gate on macOS, Linux, and Windows across Python 3.11–3.13. All
-of it must be green.
+Equivalent manual steps:
+
+```bash
+ruff format .            # APPLY formatting (required)
+ruff check .             # lint
+ruff format --check .    # verify nothing drifted
+mypy src                 # types (strict)
+bandit -r src            # SAST
+pytest                   # tests
+```
+
+CI runs the same verify gate on macOS, Linux, and Windows across Python 3.11–3.13.
+All of it must be green. Prefer `./tools/gate.sh` over assembling the commands by hand.
 
 ## Architecture & where things go
 

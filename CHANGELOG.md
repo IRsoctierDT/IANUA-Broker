@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+
+### Security
+
+- Broker posture: require `evidence.expect_tip` / `expect_tip_hash` for claimed governance; optional `chain_path` tip verification (`BROKER-EVIDENCE-*`).
+- Harden `ianua-atb` wrapper detection to path-qualified tokens only.
+- Cap grades at **C** when `inspection_incomplete` is set.
+- Add `--require-baseline-signature` and signed-baseline CI dogfood workflow.
+
+### Documentation
+
+- Add `.pre-commit-config.yaml` + `tools/gate.sh` so `ruff format` is applied before commit/CI check (fixes format-only red matrix).
+- Add `docs/ROADMAP.md` residual→spawn map; refresh STATUS timestamps.
+
 ## [1.5.2](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.5.1...ianua-broker-v1.5.2) (2026-08-14)
 
 

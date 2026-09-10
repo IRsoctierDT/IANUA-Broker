@@ -8,6 +8,10 @@ name: release-please
 # PyPI via Trusted Publishing (OIDC — no stored token), gated on the `pypi`
 # environment. This is the sole publish path (there is no manual release.yml).
 #
+# Versioning is automated: never hand-edit pyproject version or invent a
+# CHANGELOG section for an unreleased version — land Conventional Commits
+# (`feat:` / `fix:` / `feat!:`) on main; merge the release-please PR to ship.
+#
 # Operator step: on PyPI, add a Trusted Publisher for THIS workflow filename
 # (release-please.yml) + environment `pypi`, scoped to the `ianua-broker`
 # project. See docs/DEVSECOPS.md.
@@ -15,6 +19,7 @@ name: release-please
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
