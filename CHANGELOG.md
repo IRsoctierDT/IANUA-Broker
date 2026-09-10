@@ -15,6 +15,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Documentation
 
+- Add `.pre-commit-config.yaml` + `tools/gate.sh` so `ruff format` is applied before commit/CI check (fixes format-only red matrix).
 - Add `docs/ROADMAP.md` residual→spawn map; refresh STATUS timestamps.
 
 ## [1.5.2](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.5.1...ianua-broker-v1.5.2) (2026-08-14)

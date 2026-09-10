@@ -30,7 +30,12 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
       - name: Format check (ruff)
-        run: ruff format --check .
+        run: |
+          if ! ruff format --check .; then
+            echo "::error::Tree is not ruff-formatted. Locally run: ruff format . && git commit"
+            echo "Or use ./tools/gate.sh / pre-commit (see CONTRIBUTING.md). Do not only run format --check."
+            exit 1
+          fi
       - name: Type check (mypy)
         run: mypy src
       - name: Tests

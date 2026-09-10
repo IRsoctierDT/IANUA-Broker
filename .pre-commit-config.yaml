@@ -1,0 +1,10 @@
+# Format + lint before every commit so CI's `ruff format --check` cannot be the
+# first time someone learns the tree is unformatted. Pin matches pyproject
+# `ruff==0.16.6`. Install once: `pip install pre-commit && pre-commit install`
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.6
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
