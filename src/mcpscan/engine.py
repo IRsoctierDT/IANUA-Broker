@@ -37,7 +37,7 @@ from .checks.broker import (
 )
 from .checks.config_health import check_config_readable
 from .checks.datapack_health import check_datapack_store
-from .checks.exposure import check_socket_exposure
+from .checks.exposure import ListenerIdentity, check_socket_exposure
 from .checks.pinning import (
     PackageSpec,
     check_server_pinning,
@@ -847,8 +847,18 @@ def scan(
     if enumerate_sockets:
         result: EnumerationResult = enumerate_listening()
         for sock in result.sockets:
-            exposure = check_socket_exposure(sock)
-            if exposure:  # only surface sockets that are actually exposed
+            attribution_parts: list[str] = []
+            if sock.proc_name:
+                attribution_parts.append(f"process {sock.proc_name!r}")
+            if sock.pid is not None:
+                attribution_parts.append(f"pid {sock.pid}")
+            attribution = ", ".join(attribution_parts) or None
+            exposure = check_socket_exposure(
+                sock,
+                identity=ListenerIdentity.UNKNOWN,
+                identity_evidence=attribution,
+            )
+            if exposure:  # preserve non-loopback listener visibility
                 servers.append(
                     _server_from_socket(
                         result.inspection_incomplete,
