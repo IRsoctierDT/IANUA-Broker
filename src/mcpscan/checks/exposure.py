@@ -60,7 +60,9 @@ def _observation(
     bind_phrase = _TIER_LABEL[tier]
     if identity is ListenerIdentity.NON_MCP:
         identity_phrase = "non-MCP listener"
-        rationale_prefix = "Available identity evidence indicates this listener is not an MCP service."
+        rationale_prefix = (
+            "Available identity evidence indicates this listener is not an MCP service."
+        )
     else:
         identity_phrase = "unverified listener"
         rationale_prefix = "No MCP identity or protocol evidence is available for this listener."
