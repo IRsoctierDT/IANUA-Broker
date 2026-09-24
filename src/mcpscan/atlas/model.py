@@ -163,6 +163,9 @@ MAPPINGS: dict[str, tuple[FrameworkRef, ...]] = {
         _CIS_DATA,
     ),
     # exposure
+    # An unverified listener is an inventory/configuration observation, not proof
+    # of a public-facing application. Keep its mapping deliberately neutral.
+    "LISTENER-OBSERVED": (_RMF_MAP, _CIS_CONFIG),
     "EXPOSE-BIND": (_PUBLIC_FACING, _ATLAS_PUBLIC, _RMF_MANAGE, _CIS_CONFIG),
     "LAN-EXPOSED": (_PUBLIC_FACING, _ATLAS_PUBLIC, _RMF_MANAGE, _CIS_CONFIG),
     # version pinning / supply chain
