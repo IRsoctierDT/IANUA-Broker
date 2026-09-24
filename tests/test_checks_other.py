@@ -95,7 +95,10 @@ def test_regression_unknown_listener_remains_visible_without_identity_claims() -
     assert finding.severity is Severity.INFO
     assert "Unverified listener" in finding.title
     assert "MCP server" not in finding.title
-    assert "does not establish MCP identity, Internet reachability, or missing authentication" in finding.rationale
+    assert (
+        "does not establish MCP identity, Internet reachability, or missing authentication"
+        in finding.rationale
+    )
 
 
 def test_regression_verified_mcp_on_port_22_still_gets_exposure_finding() -> None:
