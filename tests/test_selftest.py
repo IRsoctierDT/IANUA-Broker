@@ -65,7 +65,7 @@ def test_run_selftest_detects_a_degraded_config_check(monkeypatch: pytest.Monkey
 def test_run_selftest_detects_a_degraded_exposure_classifier(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(selftest_mod, "check_socket_exposure", lambda _sock: [])
+    monkeypatch.setattr(selftest_mod, "check_socket_exposure", lambda *_a, **_k: [])
     report = run_selftest()
     assert not report.ok
     assert {r.expected_id for r in report.missing} == {"EXPOSE-BIND"}
