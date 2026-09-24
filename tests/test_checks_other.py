@@ -11,7 +11,7 @@ from mcpscan.checks.exposure import ListenerIdentity, check_socket_exposure
 from mcpscan.checks.pinning import check_server_pinning
 from mcpscan.checks.tool_scope import check_permissions, check_server_auto_approve
 from mcpscan.discovery.sockets import ListeningSocket, classify_exposure
-from mcpscan.domain import Dimension, Severity
+from mcpscan.domain import Dimension, Finding, Severity
 from mcpscan.scoring import (
     dimension_grades,
     grade_findings,
@@ -22,7 +22,7 @@ from mcpscan.scoring import (
 
 
 # --- exposure ---
-def _verified_mcp(sock: ListeningSocket) -> list[object]:
+def _verified_mcp(sock: ListeningSocket) -> list[Finding]:
     return check_socket_exposure(
         sock,
         identity=ListenerIdentity.VERIFIED_MCP,
