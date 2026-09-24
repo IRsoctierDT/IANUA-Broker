@@ -89,6 +89,7 @@ _LLM_SUPPLY = FrameworkRef(Framework.OWASP_LLM, "LLM03", "Supply Chain")
 
 _PUBLIC_FACING = FrameworkRef(Framework.ATTACK, "T1190", "Exploit Public-Facing Application")
 _ATLAS_PUBLIC = FrameworkRef(Framework.ATLAS, "AML.T0049", "Exploit Public-Facing Application")
+_NETWORK_SERVICE_DISCOVERY = FrameworkRef(Framework.ATTACK, "T1046", "Network Service Discovery")
 
 _VALID_ACCOUNTS = FrameworkRef(Framework.ATTACK, "T1078", "Valid Accounts")
 
@@ -163,6 +164,10 @@ MAPPINGS: dict[str, tuple[FrameworkRef, ...]] = {
         _CIS_DATA,
     ),
     # exposure
+    # An unverified listener is an inventory/configuration observation, not proof
+    # of a public-facing application. T1046 is limited to the discovery relationship:
+    # a listening network service is something adversary service enumeration can find.
+    "LISTENER-OBSERVED": (_NETWORK_SERVICE_DISCOVERY, _RMF_MAP, _CIS_CONFIG),
     "EXPOSE-BIND": (_PUBLIC_FACING, _ATLAS_PUBLIC, _RMF_MANAGE, _CIS_CONFIG),
     "LAN-EXPOSED": (_PUBLIC_FACING, _ATLAS_PUBLIC, _RMF_MANAGE, _CIS_CONFIG),
     # version pinning / supply chain

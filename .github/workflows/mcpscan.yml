@@ -1,8 +1,9 @@
 name: MCPscan (code scanning)
 
-# Dogfood: run mcpscan against its own checkout and upload the SARIF to GitHub
-# code scanning. Findings surface as code-scanning alerts on the Security tab
-# rather than gating merges here, so the scan step never fails the job.
+# Dogfood: run mcpscan against its own checkout and upload SARIF to GitHub
+# code scanning. Findings remain advisory for merge gating, but a non-zero scan
+# result is made explicit in the job summary and listener attribution is retained
+# as evidence for exposure triage.
 #
 # Guarded to public repositories because SARIF upload requires GitHub Advanced
 # Security (free on public repos; a paid add-on on private ones).
@@ -24,8 +25,10 @@ jobs:
     permissions:
       contents: read
       security-events: write # required to upload SARIF to code scanning
+
     steps:
       - uses: actions/checkout@v7
+
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -35,15 +38,92 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install .
 
+      - name: Capture listener attribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "# Listener attribution"
+            echo "# Captured for security triage only: bind address, process name, PID, and socket metadata."
+            echo "# No process environment or secret material is collected."
+            echo
+            if command -v ss >/dev/null 2>&1; then
+              sudo ss -H -lntp || ss -H -lntp || true
+            else
+              echo "ss unavailable"
+            fi
+
+            if command -v lsof >/dev/null 2>&1; then
+              echo
+              echo "# lsof fallback / cross-check"
+              sudo lsof -nP -iTCP -sTCP:LISTEN || lsof -nP -iTCP -sTCP:LISTEN || true
+            fi
+
+            if command -v systemctl >/dev/null 2>&1; then
+              echo
+              echo "# systemd socket-unit mapping"
+              echo "# LISTEN UNIT ACTIVATES"
+              sudo systemctl list-sockets --all --no-pager --no-legend 2>/dev/null \
+                || systemctl list-sockets --all --no-pager --no-legend 2>/dev/null \
+                || true
+            fi
+          } | tee listener-attribution.txt
+
       - name: Scan and emit SARIF
-        # Advise-only here: never fail the job on a finding — the SARIF upload
-        # is what surfaces results. --fail-on critical keeps a hard signal in
-        # the logs while continue-on-error lets the upload step always run.
+        id: mcpscan
+        # Advisory by design: retain the scanner's real exit outcome while
+        # allowing SARIF and evidence uploads to complete.
         continue-on-error: true
         run: mcpscan scan --sarif results.sarif --fail-on critical
 
       - name: Upload SARIF to code scanning
+        if: always() && hashFiles('results.sarif') != ''
         uses: github/codeql-action/upload-sarif@v4.38.1
         with:
           sarif_file: results.sarif
           category: mcpscan
+
+      - name: Upload MCPscan triage evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcpscan-triage-evidence
+          path: |
+            listener-attribution.txt
+            results.sarif
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Summarize MCPscan advisory result
+        if: always()
+        shell: bash
+        env:
+          MCPSCAN_OUTCOME: ${{ steps.mcpscan.outcome }}
+        run: |
+          {
+            echo "## MCPscan advisory result"
+            echo
+            if [[ "$MCPSCAN_OUTCOME" == "failure" ]]; then
+              echo "- Scan outcome: **advisory findings triggered the configured fail threshold**."
+              echo "- The job is intentionally allowed to continue so SARIF and triage evidence are preserved."
+              echo "- A green workflow therefore does **not** mean MCPscan reported no findings."
+            elif [[ "$MCPSCAN_OUTCOME" == "success" ]]; then
+              echo "- Scan outcome: **no finding triggered the configured critical threshold**."
+            else
+              echo "- Scan outcome: **$MCPSCAN_OUTCOME**."
+              echo "- Review the job log before treating this run as clean."
+            fi
+
+            echo "- Listener evidence records bind address plus available PID/process attribution only; it does not establish MCP identity or Internet reachability."
+
+            if [[ -s listener-attribution.txt ]]; then
+              port22="$(grep -E ':22([[:space:]]|$)' listener-attribution.txt || true)"
+              if [[ -n "$port22" ]]; then
+                echo
+                echo "### Port 22 listener evidence"
+                echo '~~~text'
+                printf '%s\n' "$port22"
+                echo '~~~'
+              fi
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
