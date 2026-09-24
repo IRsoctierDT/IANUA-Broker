@@ -27,7 +27,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from .checks.exposure import check_socket_exposure
+from .checks.exposure import ListenerIdentity, check_socket_exposure
 from .discovery.sockets import ListeningSocket
 from .engine import scan
 
@@ -128,7 +128,14 @@ def _exposure_fires() -> bool:
         pid=None,
         proc_name="mcpscan-selftest",
     )
-    return any(finding.id == _EXPOSURE_EXPECTED_ID for finding in check_socket_exposure(sock))
+    return any(
+        finding.id == _EXPOSURE_EXPECTED_ID
+        for finding in check_socket_exposure(
+            sock,
+            identity=ListenerIdentity.VERIFIED_MCP,
+            identity_evidence="synthetic self-test MCP identity",
+        )
+    )
 
 
 def run_selftest() -> SelfTestReport:
