@@ -58,6 +58,15 @@ jobs:
               echo "# lsof fallback / cross-check"
               sudo lsof -nP -iTCP -sTCP:LISTEN || lsof -nP -iTCP -sTCP:LISTEN || true
             fi
+
+            if command -v systemctl >/dev/null 2>&1; then
+              echo
+              echo "# systemd socket-unit mapping"
+              echo "# LISTEN UNIT ACTIVATES"
+              sudo systemctl list-sockets --all --no-pager --no-legend 2>/dev/null \
+                || systemctl list-sockets --all --no-pager --no-legend 2>/dev/null \
+                || true
+            fi
           } | tee listener-attribution.txt
 
       - name: Scan and emit SARIF
