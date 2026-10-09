@@ -25,6 +25,7 @@ from collections.abc import Iterator, Mapping, Sequence
 
 from ..discovery.live_tools import MAX_DESCRIPTION_CHARS, LiveManifest, LiveTool
 from ..domain import Dimension, Finding, Location, Severity
+from .tool_directives import cross_tool_directive
 from .tool_integrity import hidden_unicode_codepoints, injection_phrase
 
 # Cap on strings walked inside one tool's schemas/annotations, so a hostile
@@ -109,6 +110,26 @@ def _injection_finding(url: str, tool: LiveTool, surface: str, phrase: str) -> F
             f'The running server tells the model "{phrase}" inside {surface}. Tool '
             "metadata is injected into the agent's context on every session, so this "
             "text can steer the agent without any user action (tool poisoning)."
+        ),
+    )
+
+
+def _directive_finding(url: str, tool: LiveTool, surface: str, label: str) -> Finding:
+    return Finding(
+        id="LIVE-TOOL-CROSS-TOOL-DIRECTIVE",
+        dimension=Dimension.TOOL_SCOPE,
+        severity=Severity.MEDIUM,
+        title=f"Live tool {display_name(tool.name)}: directive steering other tools in {surface}",
+        location=Location(path=url),
+        remediation=(
+            "Review the tool definition at its source. If the server has no legitimate "
+            "reason to order or parameterize other tools, disable it; if it does, record "
+            "an acceptance for this exact tool digest."
+        ),
+        rationale=(
+            f"In {surface}, the running server's metadata {label}. Tool-poisoning attacks use such "
+            "directives to make the agent call sensitive tools or tamper with arguments "
+            "without any user action; benign servers rarely need them."
         ),
     )
 
@@ -202,7 +223,8 @@ def check_live_manifest(manifest: LiveManifest) -> list[Finding]:
     """Findings for one captured live manifest (deterministic order).
 
     One hidden-Unicode finding per tool (codepoints aggregated across its
-    surfaces), one injection finding per (tool, surface), plus duplicate-name,
+    surfaces), one injection finding per (tool, surface), one cross-tool
+    directive finding per (tool, surface) without an injection hit, plus duplicate-name,
     oversized-description, and capture-gap findings.
     """
     if not manifest.ok:
@@ -217,6 +239,7 @@ def check_live_manifest(manifest: LiveManifest) -> list[Finding]:
         hidden: set[int] = set()
         hidden_surfaces: list[str] = []
         injected: dict[str, str] = {}
+        directed: dict[str, str] = {}
         for surface, text in _surfaces(tool):
             codes = hidden_unicode_codepoints(text)
             if codes:
@@ -226,10 +249,16 @@ def check_live_manifest(manifest: LiveManifest) -> list[Finding]:
             phrase = injection_phrase(text)
             if phrase is not None and surface not in injected:
                 injected[surface] = phrase
+            directive = cross_tool_directive(text) if phrase is None else None
+            if directive is not None and surface not in directed:
+                directed[surface] = directive
         if hidden:
             findings.append(_hidden_finding(manifest.url, tool, hidden_surfaces, sorted(hidden)))
         for surface, phrase in injected.items():
             findings.append(_injection_finding(manifest.url, tool, surface, phrase))
+        for surface, label in directed.items():
+            if surface not in injected:  # a surface reports its strongest signal once
+                findings.append(_directive_finding(manifest.url, tool, surface, label))
         if tool.description_oversized:
             findings.append(_oversized_finding(manifest.url, tool))
 

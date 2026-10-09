@@ -336,7 +336,8 @@ every tool's name, description, input/output schema strings and annotations:
 | Check | Severity | Catches |
 |---|---|---|
 | `LIVE-TOOL-HIDDEN-UNICODE` | High | Zero-width / bidi characters hiding instructions from a reviewer |
-| `LIVE-TOOL-INJECTION-TEXT` | High | Curated prompt-injection phrases in descriptions or parameter docs |
+| `LIVE-TOOL-INJECTION-TEXT` | High | Prompt-injection phrases and their families ("ignore the previous instructions", `<IMPORTANT>` blocks, claims to outrank the user, secrecy from the user) |
+| `LIVE-TOOL-CROSS-TOOL-DIRECTIVE` | Medium | Directives steering *other* tools — forced "call X first" preconditions, dictated arguments, credential paths, coercion ([benchmark](docs/BENCHMARKS.md)) |
 | `LIVE-TOOL-OVERSIZED-DESCRIPTION` | Medium | Descriptions over 64 KiB — unreadable in an approval dialog |
 | `LIVE-TOOL-DUPLICATE-NAME` | Medium | One server advertising two definitions under one name |
 | `LIVE-TOOL-SHADOW` | Medium | The same tool name exposed by two servers (cross-server shadowing) |
@@ -521,6 +522,7 @@ from that same data file, so a new check appears here the moment it ships.
 | `EXPOSE-BIND` | T1190 | AML.T0049 | — | MANAGE | Control 4 |
 | `LAN-EXPOSED` | T1190 | AML.T0049 | — | MANAGE | Control 4 |
 | `LISTENER-OBSERVED` | T1046 | — | — | MAP | Control 4 |
+| `LIVE-TOOL-CROSS-TOOL-DIRECTIVE` | T1656 | AML.T0051 | LLM01 | MANAGE | Control 16 |
 | `LIVE-TOOL-DUPLICATE-NAME` | T1656 | AML.T0051 | LLM06 | MANAGE | Control 16 |
 | `LIVE-TOOL-HIDDEN-UNICODE` | T1027 | AML.T0051 | LLM01 | MANAGE | Control 16 |
 | `LIVE-TOOL-INJECTION-TEXT` | T1656 | AML.T0051 | LLM01 | MANAGE | Control 16 |

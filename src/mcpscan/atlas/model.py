@@ -255,6 +255,14 @@ MAPPINGS: dict[str, tuple[FrameworkRef, ...]] = {
         _RMF_MANAGE,
         _CIS_APPSEC,
     ),
+    # Directives steering other tools: the same poisoning technique, lower confidence.
+    "LIVE-TOOL-CROSS-TOOL-DIRECTIVE": (
+        _IMPERSONATION,
+        _ATLAS_PROMPT_INJECTION,
+        _LLM_PROMPT_INJECTION,
+        _RMF_MANAGE,
+        _CIS_APPSEC,
+    ),
     # Oversized metadata hides instructions from the approval dialog.
     "LIVE-TOOL-OVERSIZED-DESCRIPTION": (
         _OBFUSCATION,
