@@ -1,0 +1,73 @@
+# pages.yml — publish docs/ to GitHub Pages after CI passes on main.
+#
+# Replaces GitHub's built-in "pages build and deployment" (branch deploy of
+# docs/), whose actions still targeted the deprecated Node.js 20 runtime. The
+# actions below are pinned by commit SHA and run on Node.js 24.
+#
+# Gates (defense in depth):
+#   1. CI success: only a green CI run for a push to main in this repository
+#      publishes; a manual dispatch is accepted from main only.
+#   2. Human approval: the github-pages environment carries a required-reviewer
+#      rule, so a deploy waits for the owner to approve it.
+#
+# One job, not the usual build/deploy split: with an approval gate the deploy
+# can wait longer than the Pages artifact's retention, so the artifact is built
+# and deployed fresh inside the approved job.
+#
+# docs/ is published as-is (docs/.nojekyll), exactly what the branch deploy
+# served; no Jekyll build and no third-party build step.
+#
+# Prerequisite (one-time): Settings → Pages → Build and deployment → Source:
+# "GitHub Actions"; Settings → Environments → github-pages → Required reviewers.
+
+name: Deploy GitHub Pages
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# Newest content wins; a run waiting for approval never blocks the queue.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build & deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository)
+    permissions:
+      contents: read
+      pages: write # deploy
+      id-token: write # OIDC token deploy-pages verifies
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout the CI-verified commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Configure Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+
+      - name: Upload docs/ as the Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        with:
+          path: docs/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
