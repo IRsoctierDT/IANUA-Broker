@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.5.2...ianua-broker-v1.6.0) (2026-10-09)
+
+
+### Features
+
+* **live-tools:** capture and check live MCP tool manifests ([#123](https://github.com/IRsoctierDT/IANUA-Broker/issues/123)) ([0504bc8](https://github.com/IRsoctierDT/IANUA-Broker/commit/0504bc892fd0bab3ded7cb36f971a875abed0fcc))
+
 ## [Unreleased]
 
 
