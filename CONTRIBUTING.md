@@ -75,11 +75,13 @@ CI. To get a helpful template in your editor:
 git config commit.template .gitmessage
 ```
 
-**Owner attribution (required for agents):** every commit an AI agent authors
-ends with the owner's co-author trailer, alongside the agent's own:
+**Owner attribution (required for agents):** every commit an AI agent makes is
+**authored as the owner**, so the owner shows as the commit author on GitHub. The
+agent is credited only through its own `Co-Authored-By:` trailer:
 
-```
-Co-authored-by: IDRozenblad <44316408+IRsoctierDT@users.noreply.github.com>
+```bash
+git config user.name  "IDRozenblad"
+git config user.email "44316408+IRsoctierDT@users.noreply.github.com"
 ```
 
 This is GitHub's private noreply address, so it links to the owner's account
