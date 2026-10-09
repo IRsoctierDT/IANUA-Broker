@@ -56,9 +56,13 @@ def render_release() -> str:
     """The current release line, from ``pyproject.toml``."""
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     version = data["project"]["version"]
+    # The trailing annotation lets release-please's generic updater bump this
+    # line in the same release PR that bumps pyproject.toml (extra-files in
+    # release-please-config.json), so a release never leaves the README stale.
     return (
         f"**Current release: v{version}** "
-        "([changelog](CHANGELOG.md), [PyPI](https://pypi.org/project/ianua-broker/)).\n"
+        "([changelog](CHANGELOG.md), [PyPI](https://pypi.org/project/ianua-broker/))."
+        " <!-- x-release-please-version -->\n"
     )
 
 

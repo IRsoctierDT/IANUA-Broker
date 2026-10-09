@@ -84,3 +84,17 @@ def test_check_mode_reports_stale_without_writing(
     assert stale.read_text(encoding="utf-8") == before
     assert tool.main([]) == 0
     assert tool.main(["--check"]) == 0
+
+
+def test_release_line_is_bumped_by_release_please() -> None:
+    """A release PR must bump the README line with pyproject, or main goes red."""
+    import json
+    import re
+
+    tool = _load()
+    line = tool.render_release()
+    assert "x-release-please-version" in line
+    assert len(re.findall(r"\d+\.\d+\.\d+", line)) == 1  # the generic updater rewrites every semver
+    config = json.loads((tool.ROOT / "release-please-config.json").read_text(encoding="utf-8"))
+    extra = config["packages"]["."].get("extra-files", [])
+    assert {"type": "generic", "path": "README.md"} in extra
