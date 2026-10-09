@@ -38,6 +38,7 @@ from .checks.broker import (
 from .checks.config_health import check_config_readable
 from .checks.datapack_health import check_datapack_store
 from .checks.exposure import ListenerIdentity, check_socket_exposure
+from .checks.live_tools import check_cross_server_shadowing, check_live_manifest
 from .checks.pinning import (
     PackageSpec,
     check_server_pinning,
@@ -72,6 +73,7 @@ from .datapack import (
     load_local_datapack,
     store_is_writable_by_others,
 )
+from .discovery.live_tools import LiveManifest, capture_manifest
 from .discovery.process_env import iter_agent_process_envs, looks_like_agent
 from .discovery.sockets import EnumerationResult, enumerate_listening
 from .domain import Finding, Report, Server, ServerState
@@ -84,6 +86,11 @@ SCHEMA_VERSION = "1.1"
 
 # (name, version, ecosystem) -> (vuln_ids, any_critical)
 OsvFetch = Callable[[str, str, str], "tuple[tuple[str, ...], bool]"]
+
+# A loopback live-tools target: (host, port, http path).
+LiveTarget = tuple[str, int, str]
+# (host, port, path) -> captured manifest; injectable for tests.
+LiveCapture = Callable[[str, int, str], LiveManifest]
 
 
 def _adapters() -> tuple[HostAdapter, ...]:
@@ -717,6 +724,9 @@ def scan(
     inspect_process_env: bool = False,
     inspect_telemetry: bool = False,
     inspect_broker: bool = False,
+    inspect_live_tools: bool = False,
+    live_tools_targets: Sequence[LiveTarget] = (),
+    live_capture: LiveCapture | None = None,
     now_epoch: int | None = None,
 ) -> Report:
     """Run a full localhost scan and return a deterministic Report.
@@ -748,6 +758,18 @@ def scan(
             Assessment-only: it reads the manifest and never writes, enforces, or
             contacts the broker. Default False reads nothing new and emits no
             broker findings.
+        inspect_live_tools: When True (opt-in), speaks MCP to loopback endpoints
+            only — the explicit ``live_tools_targets`` plus, when sockets are
+            enumerated, listening sockets whose process positively identifies as
+            an agent/MCP server — captures each ``tools/list`` and checks what
+            the server actually tells the model (R-LIVE-TOOLS). The manifest
+            digest becomes the server's ``tool_identity`` so baseline/diff flag a
+            rug pull. Default False opens no new connection.
+        live_tools_targets: Explicit ``(host, port, path)`` loopback targets;
+            consulted only when ``inspect_live_tools`` is True. A non-loopback
+            host is refused by the capture layer and reported, never contacted.
+        live_capture: Inject a capture function (tests); defaults to
+            :func:`mcpscan.discovery.live_tools.capture_manifest`.
         now_epoch: "Now" in seconds since the epoch, supplied by ``cli`` so the
             token-store expiry and telemetry-staleness grades stay clock-free
             here. Consulted only when ``inspect_token_stores`` or
@@ -844,8 +866,8 @@ def scan(
         servers.extend(_audit_broker(broker_subjects, system, env))
 
     # --- running-server discovery + exposure ---
-    if enumerate_sockets:
-        result: EnumerationResult = enumerate_listening()
+    result: EnumerationResult | None = enumerate_listening() if enumerate_sockets else None
+    if result is not None:
         for sock in result.sockets:
             attribution_parts: list[str] = []
             if sock.proc_name:
@@ -870,7 +892,71 @@ def scan(
                     )
                 )
 
+    # --- live tool manifests over loopback MCP (opt-in; zero connections by default) ---
+    if inspect_live_tools:
+        targets = list(live_tools_targets)
+        if result is not None:
+            targets += _live_targets_from_sockets(result, agent_catalog)
+        servers.extend(_audit_live_tools(targets, live_capture or capture_manifest))
+
     return _assemble_report(servers, online=online)
+
+
+def _live_targets_from_sockets(
+    result: EnumerationResult, agent_catalog: AgentCatalog | None
+) -> list[LiveTarget]:
+    """Loopback targets for listening sockets owned by a positively identified agent.
+
+    Scope guardrail (mirrors ``--inspect-process-env``): only a socket whose
+    process name matches the agent/MCP marker catalog is contacted, so the scan
+    never POSTs JSON-RPC to an unrelated local service. A wildcard bind is
+    reached via the matching loopback address; a socket bound to a non-loopback
+    interface only is skipped (ADR-1).
+    """
+    targets: list[LiveTarget] = []
+    for sock in result.sockets:
+        if not sock.proc_name or not looks_like_agent(sock.proc_name, catalog=agent_catalog):
+            continue
+        if sock.ip in {"0.0.0.0", "127.0.0.1", ""} or sock.ip.startswith("127."):  # nosec B104
+            host = "127.0.0.1"
+        elif sock.ip in {"::", "::1"}:
+            host = "::1"
+        else:
+            continue
+        targets.append((host, sock.port, "/mcp"))
+    return targets
+
+
+def _audit_live_tools(targets: Sequence[LiveTarget], capture: LiveCapture) -> list[Server]:
+    """Capture and check each distinct loopback target; one Server per target.
+
+    Targets are de-duplicated and captured in sorted order, so the report is
+    deterministic regardless of discovery order.
+    """
+    unique = sorted(set(targets))
+    manifests = [capture(*target) for target in unique]
+    shadowing = check_cross_server_shadowing(manifests)
+    servers: list[Server] = []
+    for (host, port, path), manifest in zip(unique, manifests, strict=True):
+        findings = check_live_manifest(manifest) + shadowing.get(manifest.url, [])
+        servers.append(
+            Server(
+                id=f"live://{host}:{port}{path}",
+                bind_addr=host,
+                port=port,
+                pid=None,
+                proc_name=None,
+                state=ServerState.RUNNING,
+                running=manifest.ok,
+                inspection_incomplete=(not manifest.ok) or manifest.truncated,
+                findings=tuple(findings),
+                # Rug-pull fingerprint: the canonical manifest digest. A changed
+                # tool description/schema/annotation under the same endpoint is
+                # tool_identity drift in baseline/diff.
+                tool_identity=manifest.manifest_digest,
+            )
+        )
+    return servers
 
 
 def _assemble_report(servers: Sequence[Server], *, online: bool = False) -> Report:

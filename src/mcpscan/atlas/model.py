@@ -238,6 +238,51 @@ MAPPINGS: dict[str, tuple[FrameworkRef, ...]] = {
     # the store decides what counts as a secret, so this is defence evasion
     # via the tool's own supply of detection content.
     "DATAPACK-STORE-PERMS": (_IMPAIR_DEFENSES, _SUPPLY_CHAIN, _RMF_GOVERN, _CIS_CONFIG),
+    # Live tool manifests (R-LIVE-TOOLS): the same poisoning primitives as the
+    # config-level TOOL-* checks, observed in what the running server actually
+    # tells the model, so they share the TOOL-* citation stacks.
+    "LIVE-TOOL-HIDDEN-UNICODE": (
+        _OBFUSCATION,
+        _ATLAS_PROMPT_INJECTION,
+        _LLM_PROMPT_INJECTION,
+        _RMF_MANAGE,
+        _CIS_APPSEC,
+    ),
+    "LIVE-TOOL-INJECTION-TEXT": (
+        _IMPERSONATION,
+        _ATLAS_PROMPT_INJECTION,
+        _LLM_PROMPT_INJECTION,
+        _RMF_MANAGE,
+        _CIS_APPSEC,
+    ),
+    # Oversized metadata hides instructions from the approval dialog.
+    "LIVE-TOOL-OVERSIZED-DESCRIPTION": (
+        _OBFUSCATION,
+        _ATLAS_PROMPT_INJECTION,
+        _LLM_PROMPT_INJECTION,
+        _RMF_MANAGE,
+        _CIS_APPSEC,
+    ),
+    # Name collisions (within one server or across servers) let a tool
+    # masquerade as another and receive its calls: impersonation + agency.
+    "LIVE-TOOL-DUPLICATE-NAME": (
+        _IMPERSONATION,
+        _ATLAS_PROMPT_INJECTION,
+        _LLM_AGENCY,
+        _RMF_MANAGE,
+        _CIS_APPSEC,
+    ),
+    "LIVE-TOOL-SHADOW": (
+        _IMPERSONATION,
+        _ATLAS_PROMPT_INJECTION,
+        _LLM_AGENCY,
+        _RMF_MANAGE,
+        _CIS_APPSEC,
+    ),
+    # Inspection health for the live surface, like CONFIG-UNREADABLE: an
+    # un-inspected tool list is a defence-evasion gap.
+    "LIVE-TOOLS-UNAVAILABLE": (_IMPAIR_DEFENSES, _RMF_MANAGE, _CIS_CONFIG),
+    "LIVE-TOOLS-INCOMPLETE": (_IMPAIR_DEFENSES, _RMF_MANAGE, _CIS_CONFIG),
 }
 
 

@@ -22,6 +22,7 @@ reads is authored by someone other than the operator:
 | a baseline in CI | anyone who can push |
 | a detection data-pack | the refresh channel |
 | a LAN banner | the remote host |
+| a live `tools/list` response (`--inspect-live-tools`) | the local MCP server — hostile by assumption; covered by `tests/test_live_tools.py` against a configurable loopback fixture (redirects, oversized/over-deep bodies, held-open SSE streams, cursor loops, proxy env, rug pulls) |
 
 A scanner that mishandles any of them is worse than no scanner: it produces a
 signed-looking artifact that says everything is fine.
