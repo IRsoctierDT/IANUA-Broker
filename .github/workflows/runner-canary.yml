@@ -1,0 +1,61 @@
+name: Runner canary (Ubuntu 26.04)
+
+# Early warning for runner-image migrations (currently ubuntu-latest -> Ubuntu
+# 26.04, from 2026-10-19; actions/runner-images#14748). Runs the test matrix and
+# the self-scan on the NEXT image, on demand only. Non-blocking by design: not a
+# required check, every job is continue-on-error, read-only token, and the
+# self-scan uploads nothing to code scanning. Delete it (or retarget the label)
+# once the migration is complete.
+
+on:
+  workflow_dispatch:
+  # Also runs on a PR that edits this file, so a canary change is exercised
+  # before it merges (workflow_dispatch only works from the default branch).
+  pull_request:
+    branches: [main]
+    paths: [".github/workflows/runner-canary.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (ubuntu-26.04, py${{ matrix.python-version }})
+    runs-on: ubuntu-26.04
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the version most likely to lack a prebuilt for a new image.
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install (editable + dev)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Tests (same coverage gate as ci.yml)
+        run: pytest --cov=mcpscan --cov-report=term-missing
+
+  self-scan:
+    name: self-scan (ubuntu-26.04)
+    runs-on: ubuntu-26.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install mcpscan (from source)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install .
+      - name: Listening sockets on the new image (for triage)
+        run: sudo ss -H -lntp || ss -H -lntp || true
+      - name: Scan with the same gate mcpscan.yml uses
+        # A failure here means the new image exposes something the scanner
+        # grades critical: triage before 2026-10-19, not after.
+        run: mcpscan scan --fail-on critical
