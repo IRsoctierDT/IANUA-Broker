@@ -628,7 +628,7 @@ model: [`docs/proposals/LAN_SCANNING.md`](docs/proposals/LAN_SCANNING.md).
 ## Status & roadmap
 
 <!-- BEGIN GENERATED: release -->
-**Current release: v1.9.1** ([changelog](CHANGELOG.md), [PyPI](https://pypi.org/project/ianua-broker/)). <!-- x-release-please-version -->
+**Current release: v1.10.0** ([changelog](CHANGELOG.md), [PyPI](https://pypi.org/project/ianua-broker/)). <!-- x-release-please-version -->
 <!-- END GENERATED: release -->
 
 **Released on [PyPI](https://pypi.org/project/ianua-broker/)** as `ianua-broker`
