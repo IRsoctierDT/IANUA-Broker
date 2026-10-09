@@ -327,8 +327,27 @@ non-loopback hosts are refused before any socket opens; `http.client` is used
 directly so `HTTP(S)_PROXY` is never consulted and redirects are never
 followed; no credentials are sent; responses are capped at 1 MiB, JSON depth
 32, 2,000 tools and 50 pages under an overall deadline; findings never quote a
-raw description. Stdio-only servers are not yet inspected: spawning one runs
-its code, so it will happen only inside a container sandbox (ADR-18).
+raw description.
+
+**Stdio-only servers** (most local MCP servers) are inspected only inside a
+container sandbox (ADR-18), because reading their tool list means running
+their code. You supply an image that runs the server, **pinned by digest**;
+mcpscan never pulls or builds anything:
+
+```bash
+mcpscan scan --inspect-live-tools \
+  --spawn-stdio notes=ghcr.io/acme/notes-mcp@sha256:<64-hex digest>
+```
+
+The container gets `--network none`, a read-only root, `--cap-drop ALL`,
+`no-new-privileges`, an unprivileged user, a small `noexec` tmpfs, and
+memory/CPU/process limits. **No host environment variable and no host
+directory is passed in**, so secrets in your shell or home directory are
+unreachable. It is removed on exit. No podman/docker, a tag instead of a
+digest, or a failed start is reported as un-inspected (`LIVE-TOOLS-UNAVAILABLE`)
+and never falls back to running the server on your machine. CI proves the
+isolation on a real runtime: a probe server reports from inside the container
+that outbound network is blocked and a host canary secret did not leak.
 
 ### Drift detection (`mcpscan baseline` / `mcpscan diff`)
 

@@ -191,6 +191,26 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--spawn-stdio",
+        action="append",
+        default=[],
+        type=_stdio_target,
+        metavar="NAME=IMAGE@sha256:DIGEST",
+        help=(
+            "Inspect a stdio-only MCP server with --inspect-live-tools by running "
+            "its operator-supplied container image (pinned by digest; never pulled) "
+            "in the ADR-18 sandbox: no network, read-only root, no host env or "
+            "mounts, CPU/memory/process limits. RUNS THE SERVER'S CODE inside the "
+            "container. Repeatable. Fails closed without podman/docker."
+        ),
+    )
+    parser.add_argument(
+        "--container-runtime",
+        choices=("auto", "podman", "docker"),
+        default="auto",
+        help="Container runtime for --spawn-stdio (default: auto = podman, then docker).",
+    )
+    parser.add_argument(
         "--live-tools-target",
         action="append",
         default=[],
@@ -421,6 +441,23 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _stdio_target(text: str) -> tuple[str, str]:
+    """Parse ``NAME=IMAGE`` for --spawn-stdio; the image must be pinned by digest."""
+    from .discovery.stdio_sandbox import pinned_image, valid_server_name
+
+    name, sep, image = text.partition("=")
+    if not sep or not valid_server_name(name):
+        raise argparse.ArgumentTypeError(
+            "expected NAME=IMAGE@sha256:DIGEST (NAME: 1-64 of A-Z a-z 0-9 . _ -)"
+        )
+    if not pinned_image(image):
+        raise argparse.ArgumentTypeError(
+            "image must be pinned by digest (repo@sha256:<64 hex> or sha256:<64 hex>); "
+            "tags are refused because they can change"
+        )
+    return name, image
+
+
 def _live_target(text: str) -> tuple[str, int, str]:
     """Parse ``HOST:PORT[/PATH]`` (IPv6 as ``[::1]:PORT``); loopback hosts only."""
     from .discovery.sockets import is_loopback
@@ -449,9 +486,9 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
 
-    if args.live_tools_target and not args.inspect_live_tools:
+    if (args.live_tools_target or args.spawn_stdio) and not args.inspect_live_tools:
         # Fail closed: a target alone must never look like an inspection happened.
-        parser.error("--live-tools-target requires --inspect-live-tools")
+        parser.error("--live-tools-target/--spawn-stdio require --inspect-live-tools")
 
     if args.command == "lan":
         return _run_lan(args)
@@ -552,7 +589,15 @@ def _disclose_live_tools(args: argparse.Namespace) -> None:
         "followed; nothing leaves this host.",
         file=sys.stderr,
     )
-    if not args.live_tools_target:
+    for name, image in args.spawn_stdio:
+        print(
+            f"note: --spawn-stdio runs server {name!r} from image {image} inside a "
+            f"{args.container_runtime} container: --network none, read-only root, "
+            "no host environment or mounts, resource-limited, removed on exit. "
+            "The server's code executes inside that container.",
+            file=sys.stderr,
+        )
+    if not args.live_tools_target and not args.spawn_stdio:
         print(
             "note: no --live-tools-target given; only auto-identified agent sockets "
             "will be inspected.",
@@ -572,6 +617,8 @@ def _posture_snapshot(args: argparse.Namespace) -> Snapshot:
         online=args.online,
         inspect_live_tools=args.inspect_live_tools,
         live_tools_targets=tuple(args.live_tools_target),
+        stdio_targets=tuple(args.spawn_stdio),
+        container_runtime=args.container_runtime,
     )
     inventory = None
     if not args.no_inventory:
@@ -1155,6 +1202,8 @@ def _run_scan(args: argparse.Namespace) -> int:
         inspect_broker=args.inspect_broker,
         inspect_live_tools=args.inspect_live_tools,
         live_tools_targets=tuple(args.live_tools_target),
+        stdio_targets=tuple(args.spawn_stdio),
+        container_runtime=args.container_runtime,
         now_epoch=now_epoch,
     )
     report = _apply_acceptance_ledger(report, args.root)

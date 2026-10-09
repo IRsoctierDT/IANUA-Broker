@@ -443,7 +443,7 @@ def test_target_without_opt_in_flag_is_an_error(capsys: pytest.CaptureFixture[st
     with pytest.raises(SystemExit) as exc:
         cli.main(["scan", "--live-tools-target", "127.0.0.1:8765"])
     assert exc.value.code == 2
-    assert "requires --inspect-live-tools" in capsys.readouterr().err
+    assert "require --inspect-live-tools" in capsys.readouterr().err
 
 
 def test_cli_scan_discloses_and_reports(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
