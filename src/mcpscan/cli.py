@@ -191,6 +191,18 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--import-mcp-lock",
+        metavar="PATH",
+        type=Path,
+        help=(
+            "With 'baseline': also pin every approved tool from an mcpseal "
+            ".mcp-lock.json (server NAME becomes stdio://NAME, matching "
+            "--spawn-stdio NAME=...). Only digests are imported, never the "
+            "plaintext descriptions the lockfile stores. Unknown lockfile "
+            "versions are refused."
+        ),
+    )
+    parser.add_argument(
         "--spawn-stdio",
         action="append",
         default=[],
@@ -644,6 +656,11 @@ def _run_baseline(args: argparse.Namespace) -> int:
     from .report.writer import write_report
 
     snapshot = _posture_snapshot(args)
+    if args.import_mcp_lock is not None:
+        imported = _import_mcp_lock(args.import_mcp_lock, snapshot)
+        if imported is None:
+            return 2
+        snapshot = imported
     created_at = datetime.now(UTC).isoformat()
     text = render_baseline(snapshot, created_at=created_at)
 
@@ -663,6 +680,42 @@ def _run_baseline(args: argparse.Namespace) -> int:
     else:
         print(text, end="")
     return 0
+
+
+def _import_mcp_lock(path: Path, snapshot: Snapshot) -> Snapshot | None:
+    """Merge mcpseal pins into a baseline snapshot; None (exit 2) if the file is refused.
+
+    A key the live scan already pinned wins: the scan observed more than the
+    lockfile can vouch for. Every refusal and skip is reported on stderr.
+    """
+    from .drift import Snapshot
+    from .drift.mcpseal_import import MAX_LOCKFILE_BYTES, LockfileImportError, parse_mcp_lock
+
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        print(f"error: cannot read {path}: {exc.strerror}", file=sys.stderr)
+        return None
+    if len(raw) > MAX_LOCKFILE_BYTES:
+        print(f"error: {path} is larger than 4 MiB; refusing it", file=sys.stderr)
+        return None
+    try:
+        loaded = parse_mcp_lock(raw.decode("utf-8"))
+    except (UnicodeDecodeError, LockfileImportError) as exc:
+        print(f"error: refusing {path}: {exc}", file=sys.stderr)
+        return None
+    for warning in loaded.warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+    present = {f.key for f in snapshot.facts}
+    added = [f for f in loaded.facts if f.key not in present]
+    tools = sum(1 for f in added if f.kind.value == "tool")
+    print(
+        f"note: imported {tools} mcpseal tool pin(s) from {path} "
+        "(digests only; provenance mcpseal-import).",
+        file=sys.stderr,
+    )
+    facts = sorted((*snapshot.facts, *added), key=lambda f: (f.kind.value, f.key))
+    return Snapshot(schema_version=snapshot.schema_version, facts=tuple(facts))
 
 
 def _run_diff(args: argparse.Namespace) -> int:

@@ -75,9 +75,10 @@ class DriftCause(Enum):
     TOOL_DESC_CHANGED = "tool_desc_changed"  # description text changed
     TOOL_SCHEMA_CHANGED = "tool_schema_changed"  # input/output schema changed
     TOOL_ANNOT_RELAXED = "tool_annot_relaxed"  # hints now claim more capability
-    TOOL_ANNOT_TIGHTENED = (
-        "tool_annot_tightened"  # hints now claim less (verify; hosts may auto-approve)
-    )
+    # hints now claim less (verify; hosts may auto-approve on these claims)
+    TOOL_ANNOT_TIGHTENED = "tool_annot_tightened"
+    # differs from an imported mcpseal pin (description or input schema)
+    TOOL_PIN_CHANGED = "tool_pin_changed"
     OTHER = "other"
 
 

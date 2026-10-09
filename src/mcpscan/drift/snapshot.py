@@ -104,6 +104,8 @@ def _tool_facts(server: Server) -> list[PostureFact]:
             "description": tool.description_digest,
             "schema": tool.schema_digest,
         }
+        if tool.pin_digest:
+            detail["mcpseal"] = tool.pin_digest
         for hint, value in tool.annotations:
             detail[f"annotation.{hint}"] = value
         facts.append(

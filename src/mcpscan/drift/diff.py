@@ -72,7 +72,15 @@ def _inspection_incomplete(fact: PostureFact) -> bool:
 # back-filled the way ``inspection_incomplete`` is. They are dropped from the
 # comparison whenever either side lacks them, so a baseline predating the key
 # never manufactures phantom drift ("absent == unchanged").
-_COMPAT_OPTIONAL_KEYS: tuple[str, ...] = ("tool_identity",)
+_COMPAT_OPTIONAL_KEYS: tuple[str, ...] = ("tool_identity", "mcpseal")
+
+# A tool fact imported from a third-party lockfile carries only the keys that
+# lockfile can vouch for; comparison is narrowed to them (see _aligned_details).
+_IMPORTED_TOOL_KEYS: tuple[str, ...] = ("server", "mcpseal")
+
+
+def _imported(fact: PostureFact) -> bool:
+    return fact.kind is FactKind.TOOL and "provenance" in fact.detail_map()
 
 
 def _comparable_detail(fact: PostureFact) -> tuple[tuple[str, str], ...]:
@@ -103,6 +111,12 @@ def _aligned_details(
     """
     b = dict(_comparable_detail(before))
     a = dict(_comparable_detail(after))
+    if _imported(before) or _imported(after):
+        # An imported pin vouches only for the mcpseal digest; the other
+        # digests and hints were never recorded, so they cannot have "changed".
+        b = {k: v for k, v in b.items() if k in _IMPORTED_TOOL_KEYS}
+        a = {k: v for k, v in a.items() if k in _IMPORTED_TOOL_KEYS}
+        return tuple(sorted(b.items())), tuple(sorted(a.items()))
     for key in _COMPAT_OPTIONAL_KEYS:
         if key not in b or key not in a:
             b.pop(key, None)
@@ -152,6 +166,8 @@ def _hint(detail: dict[str, str], hint: str) -> str:
 def _classify_tool_changed(before: PostureFact, after: PostureFact) -> tuple[Direction, DriftCause]:
     """Every change to a pinned tool is a regression; the cause names the worst class."""
     b, a = before.detail_map(), after.detail_map()
+    if _imported(before) or _imported(after):
+        return Direction.REGRESSION, DriftCause.TOOL_PIN_CHANGED
     if b.get("description") != a.get("description"):
         return Direction.REGRESSION, DriftCause.TOOL_DESC_CHANGED
     if b.get("schema") != a.get("schema"):

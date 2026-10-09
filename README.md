@@ -322,7 +322,15 @@ again, and an expired acceptance gates loudly:
 ```
 
 A tool-drift acceptance never waives a finding: if the new text is poisoned,
-the `LIVE-TOOL-*` findings still gate. **Hardening:** the server is untrusted —
+the `LIVE-TOOL-*` findings still gate.
+
+**Already using mcpseal?** `mcpscan baseline --import-mcp-lock .mcp-lock.json`
+pins every *approved* tool from your lockfile (server `NAME` becomes
+`stdio://NAME`, so inspect with the same `--spawn-stdio NAME=...`). mcpscan
+computes mcpseal's exact pin (verified against mcpseal's published hash test
+vectors) and reports any mismatch as `tool-pin-changed`. Only digests are
+imported, never the plaintext descriptions the lockfile stores; unknown
+lockfile versions are refused rather than guessed. **Hardening:** the server is untrusted —
 non-loopback hosts are refused before any socket opens; `http.client` is used
 directly so `HTTP(S)_PROXY` is never consulted and redirects are never
 followed; no credentials are sent; responses are capped at 1 MiB, JSON depth
