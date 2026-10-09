@@ -45,6 +45,8 @@ _MARKER = re.compile(
     r"(<!-- BEGIN GENERATED: (?P<name>[a-z-]+) -->\n)(?P<body>.*?)(<!-- END GENERATED: (?P=name) -->)",
     re.DOTALL,
 )
+# Every marker token, matched or not — catches stray and unbalanced markers.
+_ANY_MARKER = re.compile(r"<!-- (BEGIN|END) GENERATED: ([^>]*?) -->")
 
 
 def _cell(text: str) -> str:
@@ -127,6 +129,11 @@ def regenerate(text: str) -> tuple[str, list[str]]:
     if unknown or missing or duplicated:
         raise ValueError(
             f"README markers invalid: missing={missing} unknown={unknown} duplicated={duplicated}"
+        )
+    tokens = len(_ANY_MARKER.findall(text))
+    if tokens != 2 * len(found):
+        raise ValueError(
+            f"README has {tokens - 2 * len(found)} stray or unbalanced generated-section marker(s)"
         )
     changed: list[str] = []
 

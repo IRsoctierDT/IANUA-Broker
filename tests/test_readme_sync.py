@@ -57,8 +57,10 @@ def test_every_check_id_is_in_the_catalog() -> None:
         lambda t: t.replace("<!-- BEGIN GENERATED: options -->", ""),
         lambda t: t + "\n<!-- BEGIN GENERATED: bogus -->\nx\n<!-- END GENERATED: bogus -->\n",
         lambda t: t + "\n<!-- BEGIN GENERATED: release -->\nx\n<!-- END GENERATED: release -->\n",
+        lambda t: t + "\n<!-- END GENERATED: release -->\n",
+        lambda t: t + "\n<!-- BEGIN GENERATED: Bogus Name -->\n",
     ],
-    ids=["missing", "unknown", "duplicated"],
+    ids=["missing", "unknown", "duplicated", "stray-end", "unmatched-begin"],
 )
 def test_invalid_markers_fail_closed(mutate: object) -> None:
     tool = _load()
