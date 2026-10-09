@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.8.0...ianua-broker-v1.9.0) (2026-10-09)
+
+
+### Features
+
+* **drift:** import mcpseal lockfiles as baseline pins ([#130](https://github.com/IRsoctierDT/IANUA-Broker/issues/130)) ([a2ffea0](https://github.com/IRsoctierDT/IANUA-Broker/commit/a2ffea00bf2d6ed9084859767ca960517cbc48c8))
+
 ## [1.8.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.7.0...ianua-broker-v1.8.0) (2026-10-09)
 
 
