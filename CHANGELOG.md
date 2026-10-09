@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.9.1...ianua-broker-v1.10.0) (2026-10-09)
+
+
+### Features
+
+* **live-tools:** detect tool-poisoning directives (MCPTox held-out recall 0% → 94%) ([#135](https://github.com/IRsoctierDT/IANUA-Broker/issues/135)) ([e3d9e80](https://github.com/IRsoctierDT/IANUA-Broker/commit/e3d9e80ce652843622edb85af686c5300efb0e54))
+
 ## [1.9.1](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.9.0...ianua-broker-v1.9.1) (2026-10-09)
 
 
