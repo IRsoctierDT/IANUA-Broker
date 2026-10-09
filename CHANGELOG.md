@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.7.0...ianua-broker-v1.8.0) (2026-10-09)
+
+
+### Features
+
+* **live-tools:** inspect stdio MCP servers inside a container sandbox ([#128](https://github.com/IRsoctierDT/IANUA-Broker/issues/128)) ([16d4978](https://github.com/IRsoctierDT/IANUA-Broker/commit/16d49786936550b58e7daf1b0921ec8bbcb3646e))
+
 ## [1.7.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.6.0...ianua-broker-v1.7.0) (2026-10-09)
 
 
