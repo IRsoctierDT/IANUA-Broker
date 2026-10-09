@@ -48,6 +48,27 @@ bumps the major. You never edit the version in `pyproject.toml` by hand.
 4. Verify: `pipx install ianua-broker` on a clean machine, then `mcpscan
    --version`.
 
+## Choosing the version explicitly (`Release-As`)
+
+To ship a version other than the one Conventional Commits imply (a milestone
+major, say), land a commit on `main` whose message ends with the footer
+`Release-As: X.Y.Z`. release-please then rewrites its pending release PR to that
+version. The footer must survive into the squash commit on `main`, so keep it in
+the squash-merge message. Still never edit `pyproject.toml` or the manifest by
+hand.
+
+**2.0.0 (milestone):** set this way by the owner after 1.9.1. It marks the live
+tool-manifest inspection line (live capture, stdio sandbox, per-tool drift,
+mcpseal import, directive detection) as the product's new baseline. No CLI
+flag, report format or exit code changed. Upgrade note: 2.0.0 reports
+**more findings** on the same servers, because the injection families and the
+new `LIVE-TOOL-CROSS-TOOL-DIRECTIVE` check (see [BENCHMARKS.md](BENCHMARKS.md))
+fire where earlier versions were silent. With the default `--fail-on high`, the
+new high-severity injection families can fail a gate that 1.9.x passed; with
+`--fail-on medium`, the medium-severity directive check can too. Review the new
+findings; for one that is legitimately flagged, a named owner can record an
+acceptance (finding id + server) in `.mcpscan-accept.json`.
+
 ## Notes
 
 - Built artifacts are named `ianua_broker-<version>` and must match the
