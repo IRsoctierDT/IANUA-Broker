@@ -75,6 +75,16 @@ CI. To get a helpful template in your editor:
 git config commit.template .gitmessage
 ```
 
+**Owner attribution (required for agents):** every commit an AI agent authors
+ends with the owner's co-author trailer, alongside the agent's own:
+
+```
+Co-authored-by: IDRozenblad <44316408+IRsoctierDT@users.noreply.github.com>
+```
+
+This is GitHub's private noreply address, so it links to the owner's account
+without exposing a personal email.
+
 ## Workflow, branching & releases
 
 The full Git workflow, CI/CD pipeline, branch-protection settings, semantic

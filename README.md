@@ -39,7 +39,10 @@ command: `mcpscan`. License: Apache-2.0. Build spawn map: [`docs/ROADMAP.md`](do
 - **Goes deeper, opt-in** — `--online` OSV dependency-vuln lookups,
   `--inspect-token-stores` (OAuth/session tokens at rest),
   `--inspect-process-env` (secrets in running agent processes),
-  `--inspect-telemetry` (agent-host logging health), `--inspect-broker`
+  `--inspect-telemetry` (agent-host logging health), `--inspect-live-tools`
+  (what a running local MCP server actually tells the model: poisoned tool
+  descriptions, shadowed tool names, and rug pulls via a fingerprinted
+  manifest), `--inspect-broker`
   (is privileged tool access fronted by an [Agent Trust
   Broker](docs/proposals/ATB_POSTURE_CHECK.md)?), `mcpscan selftest`
   (catches a degraded scanner), and a signed detection **data-pack** refresh
@@ -52,7 +55,9 @@ command: `mcpscan`. License: Apache-2.0. Build spawn map: [`docs/ROADMAP.md`](do
 - **Offline + zero egress by default** — the network is contacted only under an
   explicit opt-in: `--online` (OSV dependency lookups), `--emit webhook` (an
   alert POST, destination disclosed), or `mcpscan lan` (authorized,
-  signed-manifest assessment); each one says so. Even `update-datapack` is
+  signed-manifest assessment); each one says so. `--inspect-live-tools` speaks
+  MCP to **loopback endpoints only** — no credentials, no proxy, no redirects —
+  and discloses its targets. Even `update-datapack` is
   offline: it verifies and installs a local pack file, never fetching.
 - **Reads nothing extra by default** — deeper surfaces (token stores, running
   process environments, host logging) are read only behind their `--inspect-*`
@@ -101,6 +106,7 @@ mcpscan scan --inspect-token-stores   # opt-in: OAuth/session tokens at rest
 mcpscan scan --inspect-process-env    # opt-in: secrets in running agent processes
 mcpscan scan --inspect-telemetry      # opt-in: agent-host logging health
 mcpscan scan --inspect-broker         # opt-in: is privileged tool access fronted by a trust broker?
+mcpscan scan --inspect-live-tools --live-tools-target 127.0.0.1:8765/mcp  # opt-in: live tool manifest
 mcpscan scan --show-secrets           # reveal masked (first-2/last-2) values
 mcpscan scan --fix                    # apply safe tool-scope fixes (backs up first)
 mcpscan inventory                     # classified AI/MCP asset list (see below)
@@ -261,6 +267,44 @@ cross-server pivot escalating to Critical. `--graph-format dot` exports Graphviz
 for visualization; `--json` emits the full node/edge/path model; `--fail-on`
 makes it a CI gate. Pure, offline, read-only, and **secretless** (no raw value
 reaches the terminal, JSON, or DOT).
+
+### Live tool manifests (`--inspect-live-tools`)
+
+Config files show what a host *declares*; the running server decides what the
+model actually *reads*. `--inspect-live-tools` performs the MCP handshake
+(`initialize` → `notifications/initialized` → paginated `tools/list`, JSON or
+SSE responses, session ids honoured) against loopback endpoints and checks
+every tool's name, description, input/output schema strings and annotations:
+
+| Check | Severity | Catches |
+|---|---|---|
+| `LIVE-TOOL-HIDDEN-UNICODE` | High | Zero-width / bidi characters hiding instructions from a reviewer |
+| `LIVE-TOOL-INJECTION-TEXT` | High | Curated prompt-injection phrases in descriptions or parameter docs |
+| `LIVE-TOOL-OVERSIZED-DESCRIPTION` | Medium | Descriptions over 64 KiB — unreadable in an approval dialog |
+| `LIVE-TOOL-DUPLICATE-NAME` | Medium | One server advertising two definitions under one name |
+| `LIVE-TOOL-SHADOW` | Medium | The same tool name exposed by two servers (cross-server shadowing) |
+| `LIVE-TOOLS-UNAVAILABLE` / `-INCOMPLETE` | Low | The manifest could not be (fully) inspected — reported, never silent |
+
+**Targets** are every `--live-tools-target HOST:PORT[/PATH]` (loopback only;
+path defaults to `/mcp`) plus listening sockets owned by a process that
+positively identifies as an agent/MCP server — an unrelated local service is
+never sent JSON-RPC. **Rug pulls:** each tool is fingerprinted as
+`sha256` over its NFC-normalized name, description, schemas and annotations;
+the order-independent manifest digest becomes the server's `tool_identity`, so
+
+```bash
+mcpscan baseline --out base.json --inspect-live-tools --live-tools-target 127.0.0.1:8765
+mcpscan diff --baseline base.json --fail-on-regression --inspect-live-tools --live-tools-target 127.0.0.1:8765
+```
+
+fails CI the moment a server silently changes a tool (the postmark-mcp 1.0.16
+and Cursor CVE-2025-54136 classes). **Hardening:** the server is untrusted —
+non-loopback hosts are refused before any socket opens; `http.client` is used
+directly so `HTTP(S)_PROXY` is never consulted and redirects are never
+followed; no credentials are sent; responses are capped at 1 MiB, JSON depth
+32, 2,000 tools and 50 pages under an overall deadline; findings never quote a
+raw description. Stdio-only servers are not yet inspected (spawning one runs
+its code; see the roadmap).
 
 ### Drift detection (`mcpscan baseline` / `mcpscan diff`)
 

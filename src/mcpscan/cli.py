@@ -182,8 +182,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--inspect-live-tools",
         action="store_true",
         help=(
-            "Opt-in: loopback-only MCP tools/list against discovered local "
-            "ports (disclosed local RPC; still no LAN/WAN). Experimental."
+            "Opt-in: speak MCP (initialize + tools/list) to loopback endpoints only "
+            "and check the tool names, descriptions, schemas and annotations the "
+            "server actually advertises. Targets: every --live-tools-target, plus "
+            "listening sockets owned by a positively identified agent/MCP process. "
+            "No credentials, no proxy, no redirects, no LAN/WAN. With baseline/diff "
+            "the manifest digest is fingerprinted, so a changed tool is drift."
+        ),
+    )
+    parser.add_argument(
+        "--live-tools-target",
+        action="append",
+        default=[],
+        type=_live_target,
+        metavar="HOST:PORT[/PATH]",
+        help=(
+            "Loopback MCP endpoint for --inspect-live-tools (repeatable), e.g. "
+            "127.0.0.1:8765/mcp. Path defaults to /mcp. Non-loopback hosts are "
+            "rejected."
         ),
     )
 
@@ -405,6 +421,25 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _live_target(text: str) -> tuple[str, int, str]:
+    """Parse ``HOST:PORT[/PATH]`` (IPv6 as ``[::1]:PORT``); loopback hosts only."""
+    from .discovery.sockets import is_loopback
+
+    rest, slash, path = text.partition("/")
+    path = slash + path if slash else "/mcp"
+    if rest.startswith("["):
+        host, _, port_text = rest[1:].partition("]:")
+    else:
+        host, _, port_text = rest.rpartition(":")
+    if not host or not port_text.isdigit() or not 0 < int(port_text) < 65536:
+        raise argparse.ArgumentTypeError("expected HOST:PORT[/PATH], e.g. 127.0.0.1:8765/mcp")
+    if not is_loopback(host):
+        raise argparse.ArgumentTypeError("only loopback hosts may be inspected (ADR-1)")
+    if len(path) > 256 or any(ord(c) <= 0x20 or ord(c) >= 0x7F for c in path):
+        raise argparse.ArgumentTypeError("path must be printable ASCII without spaces")
+    return host, int(port_text), path
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point. Returns a process exit code."""
     parser = build_parser()
@@ -413,6 +448,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         parser.print_help()
         return 0
+
+    if args.live_tools_target and not args.inspect_live_tools:
+        # Fail closed: a target alone must never look like an inspection happened.
+        parser.error("--live-tools-target requires --inspect-live-tools")
 
     if args.command == "lan":
         return _run_lan(args)
@@ -503,12 +542,37 @@ def _graph_exit_code(graph: AttackGraph, fail_on: str) -> int:
     return 1 if any(path.severity in blocking for path in graph.paths) else 0
 
 
+def _disclose_live_tools(args: argparse.Namespace) -> None:
+    """Print the live-tools disclosure banner (stderr), naming explicit targets."""
+    explicit = ", ".join(f"{h}:{p}{path}" for h, p, path in args.live_tools_target) or "none"
+    print(
+        "note: --inspect-live-tools sends MCP initialize + tools/list to loopback "
+        f"endpoints only (explicit: {explicit}; plus sockets owned by identified "
+        "agent/MCP processes). No credentials are sent; no proxy or redirect is "
+        "followed; nothing leaves this host.",
+        file=sys.stderr,
+    )
+    if not args.live_tools_target:
+        print(
+            "note: no --live-tools-target given; only auto-identified agent sockets "
+            "will be inspected.",
+            file=sys.stderr,
+        )
+
+
 def _posture_snapshot(args: argparse.Namespace) -> Snapshot:
     """Run a scan (+ inventory unless --no-inventory) and build a drift Snapshot."""
     from .drift import build_snapshot
     from .engine import scan
 
-    report = scan(roots=args.root, online=args.online)
+    if args.inspect_live_tools:
+        _disclose_live_tools(args)
+    report = scan(
+        roots=args.root,
+        online=args.online,
+        inspect_live_tools=args.inspect_live_tools,
+        live_tools_targets=tuple(args.live_tools_target),
+    )
     inventory = None
     if not args.no_inventory:
         from .inventory import collect_inventory
@@ -1078,6 +1142,9 @@ def _run_scan(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
+    if args.inspect_live_tools:
+        _disclose_live_tools(args)
+
     report = scan(
         roots=args.root,
         online=args.online,
@@ -1085,6 +1152,8 @@ def _run_scan(args: argparse.Namespace) -> int:
         inspect_process_env=args.inspect_process_env,
         inspect_telemetry=args.inspect_telemetry,
         inspect_broker=args.inspect_broker,
+        inspect_live_tools=args.inspect_live_tools,
+        live_tools_targets=tuple(args.live_tools_target),
         now_epoch=now_epoch,
     )
     report = _apply_acceptance_ledger(report, args.root)
