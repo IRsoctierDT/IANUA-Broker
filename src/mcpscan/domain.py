@@ -131,6 +131,9 @@ class LiveToolPrint:
     description_digest: str
     schema_digest: str
     annotations: tuple[tuple[str, str], ...] = ()
+    # mcpseal-compatible pin: sha256 over canonical {name, description,
+    # inputSchema} (no NFC), so an imported .mcp-lock.json can be compared.
+    pin_digest: str = ""
 
 
 @dataclass(frozen=True)

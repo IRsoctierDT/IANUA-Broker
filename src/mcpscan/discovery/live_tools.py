@@ -170,6 +170,23 @@ BEHAVIOUR_HINTS: tuple[str, ...] = (
 )
 
 
+def mcpseal_pin(name: str, description: str, input_schema: object) -> str:
+    """mcpseal-compatible tool pin (hex sha256), for ``.mcp-lock.json`` import.
+
+    mcpseal 0.1.4 hashes exactly ``{name, description, inputSchema}`` as
+    canonical JSON (keys sorted at every level, no whitespace, UTF-8, no
+    escaping of non-ASCII) and does **not** NFC-normalize. Verified against
+    mcpseal's published hash test vectors.
+    """
+    canonical = json.dumps(
+        {"name": name, "description": description, "inputSchema": input_schema},
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def fingerprint(tool: LiveTool) -> LiveToolPrint:
     """Reduce a captured tool to a secret-free, comparable fingerprint.
 
@@ -190,6 +207,7 @@ def fingerprint(tool: LiveTool) -> LiveToolPrint:
             {"inputSchema": tool.input_schema, "outputSchema": tool.output_schema}
         ),
         annotations=tuple(hints),
+        pin_digest=mcpseal_pin(tool.name, tool.description, tool.input_schema),
     )
 
 
