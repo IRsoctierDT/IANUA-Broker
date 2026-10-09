@@ -183,3 +183,24 @@ unless noted. These are inputs the Principal Architect validates before Sprint 1
   repo; two release trains remain (independent blast radius, a feature not a bug).
   Supersedes the open topology question in
   [`docs/proposals/ATB_INTEGRATION.md`](proposals/ATB_INTEGRATION.md) §8.
+
+### ADR-18 — Stdio MCP servers: inspect only inside a container sandbox
+- **Options:** container sandbox · never launch (offline `--tools-json` import
+  only) · host subprocess with scrubbed environment.
+- **Decision:** Container sandbox (owner decision, 2026-10-09). `mcpscan`
+  launches a stdio-only MCP server solely to read its tool list, and only inside
+  podman or docker with: `--network none`; a read-only root filesystem; no host
+  home-directory or credential mounts (only the server's own package, read-only);
+  an environment containing **no** variables from the host config (secrets are
+  never passed in); CPU, memory, process-count and wall-clock limits; dropped
+  capabilities and no new privileges. Opt-in per server by name; no default.
+- **Why:** launching a server runs its code. A host subprocess would run it with
+  the operator's full file and network access — the exact supply-chain blast
+  radius the scanner exists to measure. Never-launch is safest but leaves
+  stdio servers (most local MCP servers) uninspected.
+- **Consequence:** no container runtime → the inspection is refused and
+  reported as un-inspected (fail closed), never downgraded to a host process.
+  Offline `--tools-json` import (R-LIVE-TOOLS-JSON) remains the zero-execution
+  path. The sandbox is assessment-only and never proxies or intercepts calls
+  (ADR-17).
+

@@ -87,6 +87,36 @@ def _finding_facts(server: Server) -> list[PostureFact]:
     return facts
 
 
+def _tool_facts(server: Server) -> list[PostureFact]:
+    """One fact per tool a live server advertised (digests and hints only).
+
+    The key pins the tool by server and name; a name advertised twice by one
+    server gets a ``#2``-style suffix so neither definition is silently dropped.
+    """
+    facts: list[PostureFact] = []
+    seen: dict[str, int] = {}
+    for tool in server.live_tools:
+        seen[tool.name] = seen.get(tool.name, 0) + 1
+        name = tool.name if seen[tool.name] == 1 else f"{tool.name}#{seen[tool.name]}"
+        detail = {
+            "server": server.id,
+            "digest": tool.digest,
+            "description": tool.description_digest,
+            "schema": tool.schema_digest,
+        }
+        for hint, value in tool.annotations:
+            detail[f"annotation.{hint}"] = value
+        facts.append(
+            PostureFact(
+                kind=FactKind.TOOL,
+                key=f"tool:{server.id}:{name}",
+                summary=f"{server.id} tool {name!r}",
+                detail=_freeze(detail),
+            )
+        )
+    return facts
+
+
 def _asset_facts(inventory: Inventory) -> list[PostureFact]:
     facts: list[PostureFact] = []
     for asset in inventory.assets:
@@ -114,6 +144,7 @@ def build_snapshot(report: Report, inventory: Inventory | None = None) -> Snapsh
     for server in report.servers:
         facts.append(_server_fact(server))
         facts.extend(_finding_facts(server))
+        facts.extend(_tool_facts(server))
     if inventory is not None:
         facts.extend(_asset_facts(inventory))
     facts.sort(key=lambda f: (f.kind.value, f.key))

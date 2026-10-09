@@ -16,6 +16,13 @@ for each change so a CI gate can act on regressions only:
   name** is a REGRESSION — same server, silently changed code/tools (a possible
   rug-pull). Like visibility loss it must never render green, so it outranks an
   exposure improvement that happens in the same scan;
+- a **live tool** (R-LIVE-TOOL-DRIFT) is pinned individually: a tool added to a
+  server that existed at baseline, or *any* change to a pinned tool's
+  description, schema, or behaviour hints, is a REGRESSION — the model reads
+  the new text without anyone having approved it. A removed tool is
+  INFORMATIONAL (capability shrank). Tightened hints are still a regression:
+  annotations are untrusted claims, and a tool that newly claims
+  ``readOnlyHint`` may be angling for auto-approval;
 - everything else — a new/removed asset, a declared server appearing — is
   INFORMATIONAL.
 
@@ -127,6 +134,59 @@ def _finding_cause(fact: PostureFact) -> DriftCause:
     return DriftCause.OTHER
 
 
+# MCP spec defaults for absent behaviour hints. The spec chose the permissive
+# (most-capability) value as each default, so the default is also the
+# "relaxed" direction: moving a hint to it claims MORE capability.
+_HINT_PERMISSIVE: dict[str, str] = {
+    "readOnlyHint": "false",
+    "destructiveHint": "true",
+    "idempotentHint": "false",
+    "openWorldHint": "true",
+}
+
+
+def _hint(detail: dict[str, str], hint: str) -> str:
+    return detail.get(f"annotation.{hint}", _HINT_PERMISSIVE[hint])
+
+
+def _classify_tool_changed(before: PostureFact, after: PostureFact) -> tuple[Direction, DriftCause]:
+    """Every change to a pinned tool is a regression; the cause names the worst class."""
+    b, a = before.detail_map(), after.detail_map()
+    if b.get("description") != a.get("description"):
+        return Direction.REGRESSION, DriftCause.TOOL_DESC_CHANGED
+    if b.get("schema") != a.get("schema"):
+        return Direction.REGRESSION, DriftCause.TOOL_SCHEMA_CHANGED
+    relaxed = any(
+        _hint(b, h) != _hint(a, h) and _hint(a, h) == _HINT_PERMISSIVE[h] for h in _HINT_PERMISSIVE
+    )
+    if relaxed:
+        return Direction.REGRESSION, DriftCause.TOOL_ANNOT_RELAXED
+    if any(_hint(b, h) != _hint(a, h) for h in _HINT_PERMISSIVE):
+        return Direction.REGRESSION, DriftCause.TOOL_ANNOT_TIGHTENED
+    # Only an explicit hint that restates its default was added or dropped (or
+    # another digest-covered field moved): still an unapproved change.
+    return Direction.REGRESSION, DriftCause.TOOL_IDENTITY_DRIFT
+
+
+def _server_pinned_tools(old: dict[str, PostureFact], server_id: str) -> bool:
+    """Whether the baseline pinned this server's tools, so a new tool is unapproved.
+
+    True when the server existed at baseline AND the baseline is per-tool aware:
+    it holds tool facts for the server, or the server fact carries no
+    ``tool_identity`` (a current-era live server that simply had no tools). A
+    tool on a brand-new server is inventory, and a baseline written before
+    per-tool pinning (server fact with a manifest ``tool_identity`` but no tool
+    facts) never manufactures a phantom TOOL_ADDED on upgrade.
+    """
+    server_fact = old.get(f"server:{server_id}")
+    if server_fact is None:
+        return False
+    prefix = f"tool:{server_id}:"
+    if any(key.startswith(prefix) for key in old):
+        return True
+    return "tool_identity" not in server_fact.detail_map()
+
+
 def _classify_added(fact: PostureFact) -> tuple[Direction, DriftCause]:
     if fact.kind is FactKind.FINDING:
         return Direction.REGRESSION, _finding_cause(fact)
@@ -148,6 +208,8 @@ def _classify_removed(fact: PostureFact) -> tuple[Direction, DriftCause]:
 
 
 def _classify_changed(before: PostureFact, after: PostureFact) -> tuple[Direction, DriftCause]:
+    if after.kind is FactKind.TOOL:
+        return _classify_tool_changed(before, after)
     if after.kind is FactKind.FINDING:
         return Direction.INFORMATIONAL, _finding_cause(after)
     if after.kind is FactKind.ASSET:
@@ -183,7 +245,15 @@ def diff_snapshots(baseline: Snapshot, current: Snapshot) -> DriftReport:
 
     for key in new.keys() - old.keys():
         fact = new[key]
-        direction, cause = _classify_added(fact)
+        if fact.kind is FactKind.TOOL:
+            direction = (
+                Direction.REGRESSION
+                if _server_pinned_tools(old, fact.detail_map().get("server", ""))
+                else Direction.INFORMATIONAL
+            )
+            cause = DriftCause.TOOL_ADDED
+        else:
+            direction, cause = _classify_added(fact)
         entries.append(
             DriftEntry(
                 change=ChangeType.ADDED,
@@ -198,7 +268,10 @@ def diff_snapshots(baseline: Snapshot, current: Snapshot) -> DriftReport:
 
     for key in old.keys() - new.keys():
         fact = old[key]
-        direction, cause = _classify_removed(fact)
+        if fact.kind is FactKind.TOOL:
+            direction, cause = Direction.INFORMATIONAL, DriftCause.TOOL_REMOVED
+        else:
+            direction, cause = _classify_removed(fact)
         entries.append(
             DriftEntry(
                 change=ChangeType.REMOVED,

@@ -17,6 +17,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from ..domain import Acceptance
+
 DRIFT_SCHEMA_VERSION = "1.0"
 
 
@@ -26,6 +28,7 @@ class FactKind(Enum):
     SERVER = "server"  # a discovered server/endpoint (running or declared)
     FINDING = "finding"  # a posture finding at a location
     ASSET = "asset"  # an inventoried AI/MCP asset
+    TOOL = "tool"  # one tool advertised by a live MCP server (R-LIVE-TOOL-DRIFT)
 
 
 class Direction(Enum):
@@ -64,6 +67,17 @@ class DriftCause(Enum):
     INSPECTION_REGRESSION = "inspection_regression"  # scanner lost visibility it had
     INVENTORY_DRIFT = "inventory_drift"  # an inventoried asset appeared/disappeared
     TOOL_IDENTITY_DRIFT = "tool_identity_drift"  # same server name, changed code/tools (rug-pull)
+    # Per-tool drift on a live MCP server (R-LIVE-TOOL-DRIFT). Any change to a
+    # pinned tool is a regression: the model reads the new text without anyone
+    # having approved it, which is exactly the rug-pull window.
+    TOOL_ADDED = "tool_added"  # an existing server gained a tool
+    TOOL_REMOVED = "tool_removed"  # a tool disappeared (capability shrink; informational)
+    TOOL_DESC_CHANGED = "tool_desc_changed"  # description text changed
+    TOOL_SCHEMA_CHANGED = "tool_schema_changed"  # input/output schema changed
+    TOOL_ANNOT_RELAXED = "tool_annot_relaxed"  # hints now claim more capability
+    TOOL_ANNOT_TIGHTENED = (
+        "tool_annot_tightened"  # hints now claim less (verify; hosts may auto-approve)
+    )
     OTHER = "other"
 
 
@@ -108,6 +122,9 @@ class DriftEntry:
     cause: DriftCause = DriftCause.OTHER
     detail_before: tuple[tuple[str, str], ...] = ()
     detail_after: tuple[tuple[str, str], ...] = ()
+    # A named-human acceptance that waived this entry (tool drift only); see
+    # :func:`mcpscan.acceptance.apply_tool_drift_acceptances`.
+    acceptance: Acceptance | None = None
 
 
 @dataclass(frozen=True)

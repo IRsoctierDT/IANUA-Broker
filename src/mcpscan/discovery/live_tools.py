@@ -37,6 +37,7 @@ import unicodedata
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 
+from ..domain import LiveToolPrint
 from .sockets import is_loopback
 
 MAX_BODY_BYTES = 1024 * 1024
@@ -153,6 +154,43 @@ def tool_digest(
     )
     canonical = json.dumps(material, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _canonical_digest(value: object) -> str:
+    canonical = json.dumps(_nfc(value), sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+# The standard MCP tool-annotation behaviour hints (spec: tools/annotations).
+BEHAVIOUR_HINTS: tuple[str, ...] = (
+    "destructiveHint",
+    "idempotentHint",
+    "openWorldHint",
+    "readOnlyHint",
+)
+
+
+def fingerprint(tool: LiveTool) -> LiveToolPrint:
+    """Reduce a captured tool to a secret-free, comparable fingerprint.
+
+    Description and schemas are kept only as digests; of the annotations, only
+    the standard boolean behaviour hints that are actually present are kept.
+    """
+    hints: list[tuple[str, str]] = []
+    if isinstance(tool.annotations, dict):
+        for hint in BEHAVIOUR_HINTS:
+            value = tool.annotations.get(hint)
+            if isinstance(value, bool):
+                hints.append((hint, "true" if value else "false"))
+    return LiveToolPrint(
+        name=tool.name,
+        digest=tool.digest,
+        description_digest=_canonical_digest(tool.description),
+        schema_digest=_canonical_digest(
+            {"inputSchema": tool.input_schema, "outputSchema": tool.output_schema}
+        ),
+        annotations=tuple(hints),
+    )
 
 
 # --- bounded JSON -------------------------------------------------------------
