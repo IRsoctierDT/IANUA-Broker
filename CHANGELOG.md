@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.6.0...ianua-broker-v1.7.0) (2026-10-09)
+
+
+### Features
+
+* **drift:** pin live MCP tools individually in baseline/diff ([#126](https://github.com/IRsoctierDT/IANUA-Broker/issues/126)) ([ce7fe41](https://github.com/IRsoctierDT/IANUA-Broker/commit/ce7fe41bf4788a6e3b98d9027759b3d895a7cd8d))
+
 ## [1.6.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.5.2...ianua-broker-v1.6.0) (2026-10-09)
 
 
