@@ -312,6 +312,7 @@ predictable, not speculative): `services/`, `packages/`, `docker/`, `infra/`
 | `dependency-review.yml` | PR | block PRs that add vulnerable/incompatible deps |
 | `pr-title.yml` | PR | enforce Conventional Commit PR titles |
 | `release-please.yml` | push → main | maintain release PR (version + changelog), tag, publish to PyPI via Trusted Publishing, and attach the CycloneDX SBOM + SHA-256 checksums — the sole release path |
+| `pages.yml` | CI success on main, manual | publish `docs/` to GitHub Pages (SHA-pinned Node 24 actions) after owner approval on the `github-pages` environment; replaces the built-in branch deploy |
 | `dependabot.yml` | schedule | pip + github-actions update PRs, weekly |
 
 > **CodeQL & dependency-review are GitHub Advanced Security features** — free on
