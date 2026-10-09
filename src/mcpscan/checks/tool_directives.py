@@ -57,7 +57,8 @@ _DIRECTIVES: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(
-            r"\b(?:must|always|should)\s+(?:change|set|modify|replace|prepend|append|redirect"
+            # "must"/"always" only: "you should set the page parameter" is ordinary API prose.
+            r"\b(?:must|always)\s+(?:change|set|modify|replace|prepend|append|redirect"
             r"|override|add)\b[^.]{0,80}\b(?:parameter|argument|param|field|query"
             r"|to\s+the\s+user's)\b"
             r"|\bwhen\s+(?:using|calling|invoking|you\s+use|a\s+user\s+calls)\b[^.]{0,80}?"
