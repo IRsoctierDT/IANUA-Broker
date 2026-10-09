@@ -107,6 +107,8 @@ mcpscan scan --inspect-process-env    # opt-in: secrets in running agent process
 mcpscan scan --inspect-telemetry      # opt-in: agent-host logging health
 mcpscan scan --inspect-broker         # opt-in: is privileged tool access fronted by a trust broker?
 mcpscan scan --inspect-live-tools --live-tools-target 127.0.0.1:8765/mcp  # opt-in: live tool manifest
+mcpscan scan --inspect-live-tools --spawn-stdio notes=IMAGE@sha256:…  # opt-in: stdio server in a sandbox
+mcpscan baseline --out base.json --import-mcp-lock .mcp-lock.json      # also pin an mcpseal lockfile
 mcpscan scan --show-secrets           # reveal masked (first-2/last-2) values
 mcpscan scan --fix                    # apply safe tool-scope fixes (backs up first)
 mcpscan inventory                     # classified AI/MCP asset list (see below)
@@ -130,6 +132,61 @@ grade but stops failing the gate until it lapses (then it re-arms, loudly).
 
 Exit code is non-zero when a finding meets `--fail-on` (default: `high`), so it
 drops straight into CI.
+
+### Command & option reference
+
+Generated from the CLI's own argument parser by `tools/build_readme.py`, so it
+always matches `mcpscan --help`; CI fails if it drifts.
+
+<!-- BEGIN GENERATED: options -->
+| Option | Description |
+|---|---|
+| `--version` | show program's version number and exit |
+| `COMMAND (scan · inventory · atlas · trust · graph · baseline · diff · lan · schedule · selftest · update-datapack)` | The action to run: 'scan' (localhost posture), 'inventory' (classified AI/MCP asset list), 'atlas' (findings mapped to security frameworks), 'trust' (per-agent Trust Score + risk relationships), 'graph' (AI attack-path graph: cross-server credential/tool-chaining), 'baseline' (write a posture snapshot), 'diff' (drift vs a baseline), 'lan' (authorized network assessment), 'schedule' (emit an OS scheduler unit that runs scan+diff on a cadence), 'selftest' (confirm the scanner's core detections still fire against a known-bad fixture), or 'update-datapack' (verify a signed detection data-pack and install it locally). |
+| `--root DIR` | Project root to scan for .mcp.json/.env (repeatable; default: cwd). |
+| `--json PATH` | Write a JSON report. |
+| `--html PATH` | Write an HTML report. |
+| `--sarif PATH` | Write a SARIF 2.1.0 report for GitHub code scanning. |
+| `--show-secrets` | Reveal masked (first-2/last-2) secret values. Off by default. |
+| `--absolute-paths` | Show full paths instead of relativizing to ~ (off by default). |
+| `--fail-on FAIL_ON` | Minimum severity that makes the command exit non-zero (default: high). |
+| `--online` | Enrich pinned packages with OSV advisories. Makes outbound requests to api.osv.dev (sends only package name+version). Off by default. |
+| `--fix` | Apply safe, reversible remediations to discovered configs: remove dangerous/wildcard entries from permission allow-lists and autoApprove. Backs up each file to <path>.mcpscan.bak first. Off by default (the tool is advise-only unless you pass --fix). |
+| `--inspect-token-stores` | Read the on-disk credential/token stores of discovered hosts (e.g. Claude Code's ~/.claude/.credentials.json) to grade file permissions and, via an offline JWT decode, flag tokens already expired. No token value is stored or printed. Off by default (reads nothing extra). |
+| `--inspect-process-env` | Read the environment blocks of your own running agent/MCP processes to detect plaintext secrets. Values are redacted to a fingerprint at detection, never stored or printed. Only your own processes are readable. Off by default (enumerates no processes). |
+| `--inspect-telemetry` | Read the metadata (existence, permissions, last-modified time) of discovered hosts' agent/MCP log surfaces to grade logging health: absent/empty logging, group/world-readable logs, or long-stale logs. Only log metadata is read, never log contents. Off by default (reads nothing extra). |
+| `--inspect-broker` | Read the documented Agent Trust Broker manifest (broker.json) and grade whether privileged servers are fronted by a sound broker (present, least-privilege allowlist, signed tool manifests, audit log on). Assessment-only: reads the manifest, never writes or contacts the broker. The manifest holds no secrets. Off by default (reads nothing extra). |
+| `--inspect-live-tools` | Opt-in: speak MCP (initialize + tools/list) to loopback endpoints only and check the tool names, descriptions, schemas and annotations the server actually advertises. Targets: every --live-tools-target, plus listening sockets owned by a positively identified agent/MCP process. No credentials, no proxy, no redirects, no LAN/WAN. With baseline/diff the manifest digest is fingerprinted, so a changed tool is drift. |
+| `--import-mcp-lock PATH` | With 'baseline': also pin every approved tool from an mcpseal .mcp-lock.json (server NAME becomes stdio://NAME, matching --spawn-stdio NAME=...). Only digests are imported, never the plaintext descriptions the lockfile stores. Unknown lockfile versions are refused. |
+| `--spawn-stdio NAME=IMAGE@sha256:DIGEST` | Inspect a stdio-only MCP server with --inspect-live-tools by running its operator-supplied container image (pinned by digest; never pulled) in the ADR-18 sandbox: no network, read-only root, no host env or mounts, CPU/memory/process limits. RUNS THE SERVER'S CODE inside the container. Repeatable. Fails closed without podman/docker. |
+| `--container-runtime CONTAINER_RUNTIME` | Container runtime for --spawn-stdio (default: auto = podman, then docker). |
+| `--live-tools-target HOST:PORT[/PATH]` | Loopback MCP endpoint for --inspect-live-tools (repeatable), e.g. 127.0.0.1:8765/mcp. Path defaults to /mcp. Non-loopback hosts are rejected. |
+| `--emit SINK` | Emit a redacted findings/drift summary to a sink (repeatable): 'ndjson' (append a JSON line to --emit-ndjson-path), 'webhook' (POST JSON to --emit-webhook-url), or 'syslog' (local syslog). Off by default; no secret value is ever sent — only an 8-hex fingerprint. |
+| `--emit-ndjson-path PATH` | emit: file the 'ndjson' sink appends one JSON alert line to. |
+| `--emit-webhook-url URL` | emit: HTTP(S) endpoint the 'webhook' sink POSTs the alert to (egress; the destination host is disclosed to stderr before the POST). |
+| `--emit-syslog` | emit: send the alert to the local syslog (equivalent to --emit syslog). |
+| `--out PATH` | baseline: write the snapshot here (default: stdout). |
+| `--baseline PATH` | diff: the baseline snapshot to compare the current posture against. |
+| `--fail-on-regression` | diff: exit non-zero if any change is a posture regression. |
+| `--max-age-days N` | diff: baseline age (days) beyond which it counts as stale (default: 30). |
+| `--fail-on-stale` | diff: exit non-zero when the baseline is older than --max-age-days (explicit opt-in; without it a stale baseline only warns). |
+| `--require-baseline-signature` | diff: refuse unsigned baselines (require --signature and --allowed-signers). Recommended for CI drift gates. |
+| `--no-inventory` | baseline/diff/graph: work from posture/trust data alone, skipping the AI/MCP asset inventory. |
+| `--matrix` | atlas: print the full check-id → framework reference matrix without running a scan. |
+| `--min-grade MIN_GRADE` | trust: exit non-zero if any agent tool grades below this Trust grade. |
+| `--graph-format GRAPH_FORMAT` | graph: stdout format — 'text' (human attack-chain report, the default) or 'dot' (Graphviz DOT export to draw the graph). --json still writes the machine-readable graph JSON in either mode. |
+| `--cadence CADENCE` | schedule: how often the generated unit runs 'mcpscan scan' + 'mcpscan diff'. Required for the 'schedule' command. |
+| `--no-probe` | inventory: skip the loopback endpoint fingerprinting; classify from process names and default ports only. |
+| `--manifest PATH` | Signed TOML authorization manifest. |
+| `--signature PATH` | Detached signature over the signed input: the manifest ('lan'), the data-pack ('update-datapack'), or the baseline ('diff'). |
+| `--allowed-signers PATH` | OpenSSH allowed-signers file for the 'ssh' scheme. |
+| `--invoker INVOKER` | Invocation mode. 'agent' gets tighter budgets and exact-host-only scope. |
+| `--dry-run` | lan: verify the manifest and print the target plan without sending any packet. |
+| `--enterprise-policy PATH` | lan: TOML policy naming the public (non-private) targets an organization has authorized. Required to probe any public address. |
+| `--pack PATH` | update-datapack: the detection data-pack JSON file to verify and install. |
+| `--signer ID` | The signer identity to check against --allowed-signers, for 'update-datapack' and for a signed baseline on 'diff' (default: the first principal named in that file). |
+| `--scheme SCHEME` | The signature scheme for 'update-datapack' and for verifying a signed baseline on 'diff' (default: ssh, dependency-free). |
+<!-- END GENERATED: options -->
 
 ### Example output
 
@@ -439,6 +496,54 @@ and it lives in one auditable data file
 that every check id the scanner can emit has a mapping and no mapping outlives
 its check. Exit-code semantics match `scan` (`--fail-on`).
 
+#### Check catalog
+
+Every check id the scanner can emit, with its framework citations — generated
+from that same data file, so a new check appears here the moment it ships.
+
+<!-- BEGIN GENERATED: checks -->
+| Check | MITRE ATT&CK | MITRE ATLAS | OWASP LLM Top 10 | NIST AI RMF | CIS Controls v8 |
+|---|---|---|---|---|---|
+| `BROKER-ABSENT` | T1548 | — | LLM06 | GOVERN | Control 6 |
+| `BROKER-ALLOWLIST-PERMISSIVE` | T1548 | — | LLM06 | GOVERN | Control 6 |
+| `BROKER-EVIDENCE-MISMATCH` | T1656, T1562 | AML.T0051 | — | GOVERN | Control 8 |
+| `BROKER-EVIDENCE-MISSING` | T1562 | AML.T0051 | LLM06 | GOVERN | Control 4 |
+| `BROKER-MANIFEST-UNVERIFIED` | T1656 | AML.T0051 | LLM01 | GOVERN | Control 16 |
+| `BROKER-NO-AUDIT` | T1562.003 | — | — | GOVERN | Control 8 |
+| `BROKER-PARSE-ERROR` | T1562 | — | — | GOVERN | Control 4 |
+| `CONFIG-UNREADABLE` | T1562 | — | — | MANAGE | Control 4 |
+| `CRED-ENV` | T1552.001 | AML.T0055 | LLM02 | GOVERN | Control 3 |
+| `CRED-GIT` | T1552.001 | AML.T0055 | — | GOVERN | Control 3 |
+| `CRED-PERMS` | T1552.001 | AML.T0055 | — | GOVERN | Control 3 |
+| `CRED-PLAINTEXT` | T1552.001 | AML.T0055 | LLM02 | GOVERN | Control 3 |
+| `CRED-REUSE` | T1078, T1552.001 | AML.T0055 | — | GOVERN | Control 6 |
+| `DATAPACK-STORE-PERMS` | T1562, T1195.002 | — | — | GOVERN | Control 4 |
+| `EXPOSE-BIND` | T1190 | AML.T0049 | — | MANAGE | Control 4 |
+| `LAN-EXPOSED` | T1190 | AML.T0049 | — | MANAGE | Control 4 |
+| `LISTENER-OBSERVED` | T1046 | — | — | MAP | Control 4 |
+| `LIVE-TOOL-DUPLICATE-NAME` | T1656 | AML.T0051 | LLM06 | MANAGE | Control 16 |
+| `LIVE-TOOL-HIDDEN-UNICODE` | T1027 | AML.T0051 | LLM01 | MANAGE | Control 16 |
+| `LIVE-TOOL-INJECTION-TEXT` | T1656 | AML.T0051 | LLM01 | MANAGE | Control 16 |
+| `LIVE-TOOL-OVERSIZED-DESCRIPTION` | T1027 | AML.T0051 | LLM01 | MANAGE | Control 16 |
+| `LIVE-TOOL-SHADOW` | T1656 | AML.T0051 | LLM06 | MANAGE | Control 16 |
+| `LIVE-TOOLS-INCOMPLETE` | T1562 | — | — | MANAGE | Control 4 |
+| `LIVE-TOOLS-UNAVAILABLE` | T1562 | — | — | MANAGE | Control 4 |
+| `PIN-KNOWN-VULN` | T1195.002 | AML.T0010 | LLM03 | MAP | Control 16 |
+| `PIN-UNPINNED` | T1195.002 | AML.T0010 | LLM03 | MAP | Control 16 |
+| `SCOPE-AUTOAPPROVE-WILDCARD` | T1548 | — | LLM06 | MANAGE | Control 6 |
+| `SCOPE-DANGEROUS-ALLOW` | T1059 | — | LLM06 | MANAGE | Control 6 |
+| `SCOPE-DANGEROUS-AUTOAPPROVE` | T1059 | — | LLM06 | MANAGE | Control 6 |
+| `SCOPE-WILDCARD` | T1548 | — | LLM06 | MANAGE | Control 6 |
+| `TELEMETRY-ABSENT` | T1562.003 | — | — | MANAGE | Control 8 |
+| `TELEMETRY-PERMS` | T1562.003 | — | — | GOVERN | Control 8, Control 3 |
+| `TELEMETRY-STALE` | T1562.003 | — | — | MANAGE | Control 8 |
+| `TOKEN-STORE-EXPIRED` | T1528, T1552 | AML.T0055 | — | GOVERN | Control 3 |
+| `TOKEN-STORE-PERMS` | T1528, T1552, T1552.001 | AML.T0055 | — | GOVERN | Control 3 |
+| `TOOL-HIDDEN-UNICODE` | T1027 | AML.T0051 | LLM01 | MANAGE | Control 16 |
+| `TOOL-INJECTION-TEXT` | T1656 | AML.T0051 | LLM01 | MANAGE | Control 16 |
+| `VULN-KNOWN` | T1195.001 | AML.T0010 | LLM03 | MAP | Control 16 |
+<!-- END GENERATED: checks -->
+
 ### GitHub code scanning (SARIF)
 
 `--sarif` writes a SARIF 2.1.0 log that GitHub ingests as code-scanning alerts on
@@ -510,7 +615,7 @@ model: [`docs/proposals/LAN_SCANNING.md`](docs/proposals/LAN_SCANNING.md).
 | Doc | What it is |
 |---|---|
 | [docs/SPEC.md](docs/SPEC.md) | Full product & technical specification (testable requirements, scoring rubric, threat model, DoD). |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | 17 architecture decision records. |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture decision records (ADRs). |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component model, dependency direction, trust boundaries. |
 | [docs/BACKLOG.md](docs/BACKLOG.md) | Sprint-tagged tickets + requirement→ticket traceability. |
 | [docs/SECURITY_SIGNOFF.md](docs/SECURITY_SIGNOFF.md) | Threat-model verification matrix (security sign-off). |
@@ -519,6 +624,10 @@ model: [`docs/proposals/LAN_SCANNING.md`](docs/proposals/LAN_SCANNING.md).
 | [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) | Reporting policy · contributor guide. |
 
 ## Status & roadmap
+
+<!-- BEGIN GENERATED: release -->
+**Current release: v1.9.0** ([changelog](CHANGELOG.md), [PyPI](https://pypi.org/project/ianua-broker/)). <!-- x-release-please-version -->
+<!-- END GENERATED: release -->
 
 **Released on [PyPI](https://pypi.org/project/ianua-broker/)** as `ianua-broker`
 (the `mcpscan` command) — stable and production-ready, behind a green CI gate
@@ -553,8 +662,15 @@ credential inspection, and an autonomous-exfiltration trust composite); and
 lookups, tool-integrity heuristics, agent-host telemetry checks, `mcpscan
 selftest`, and a signed detection **data-pack** refresh channel). **`graph`
 (Tier 3 — the cross-server AI attack-path graph) has now landed**, completing
-the platform tiers. Next: real-lab dogfooding (stakeholder configs + a
-pfSense/Suricata network lab).
+the platform tiers.
+
+**1.7–1.8 — live tool manifests.** `--inspect-live-tools` reads what a running
+MCP server actually tells the model (loopback HTTP, and stdio servers inside a
+digest-pinned, network-less container sandbox per ADR-18), with `LIVE-TOOL-*`
+poisoning and shadowing checks; `baseline`/`diff` pin every tool individually
+with named-human, digest-scoped acceptances; and `--import-mcp-lock` brings
+existing mcpseal pins across. See [docs/ROADMAP.md](docs/ROADMAP.md) for what is
+next.
 
 ## License
 

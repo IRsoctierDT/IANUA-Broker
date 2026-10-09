@@ -65,6 +65,21 @@ All of it must be green. Prefer `./tools/gate.sh` over assembling the commands b
 - No writing to a user's config files (advise-only).
 - New logic ships with tests, including failure/edge cases.
 
+## README generated sections
+
+Parts of `README.md` are generated from the code they describe: the command &
+option reference (from the CLI parser), the check catalog (from the atlas
+mappings) and the release line (from `pyproject.toml`). They sit between
+`<!-- BEGIN GENERATED: … -->` / `<!-- END GENERATED: … -->` markers; edit the
+source, never the generated text, then run:
+
+```bash
+python tools/build_readme.py
+```
+
+`tests/test_readme_sync.py` fails CI on every OS/Python cell if a generated
+section is stale. Everything outside the markers stays hand-written.
+
 ## Commit style
 
 Conventional commits (`feat:`, `fix:`, `docs:`, `chore:`, `test:`) scoped where
