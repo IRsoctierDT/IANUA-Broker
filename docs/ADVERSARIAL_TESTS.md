@@ -96,8 +96,13 @@ future narrowing of a compensating control is caught:
   regex survives arbitrary insertion — **but the insertion itself is reported**
   by `TOOL-HIDDEN-UNICODE` on the same field. That pairing is the actual
   control, and `test_detection_under_attack.py` guards it.
-- **Paraphrased prompt injection is not caught.** The phrase list is curated for
-  a near-zero false-positive rate; fuzzy matching would fire on ordinary
+- **Paraphrased prompt injection outside the measured families is not caught.**
+  The exact phrases are backed by bounded patterns for the families that real
+  tool-poisoning corpora use ("ignore *the* previous instructions", `<IMPORTANT>`
+  blocks, claims to outrank the user, secrecy from the user). Each family was
+  admitted only with its false-positive rate measured
+  ([BENCHMARKS.md](BENCHMARKS.md)). A novel paraphrase ("disregard everything
+  above this line") still evades. General fuzzy matching would fire on ordinary
   READMEs.
 - **An *unsigned* baseline's digest detects corruption, not a motivated editor.**
   It is a hash of the facts, not a MAC — anyone who can rewrite the file can

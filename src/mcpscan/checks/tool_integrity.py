@@ -9,11 +9,14 @@ that a human reviewer would miss but an agent would act on:
 - invisible / bidirectional Unicode control characters (zero-width joiners,
   RTL/LTR overrides, a stray BOM) that hide text from a reader while the model
   still reads it → ``TOOL-HIDDEN-UNICODE``;
-- a small curated set of prompt-injection phrases embedded in a config value →
+- a small curated set of prompt-injection phrases, plus bounded patterns for
+  their phrase families (instruction override, ``<IMPORTANT>`` blocks, claims
+  to outrank the user, secrecy from the user), embedded in a config value →
   ``TOOL-INJECTION-TEXT``.
 
-Deliberately narrow: only an *actual* invisible control character or an *exact*
-curated phrase fires, so ordinary text never trips a false positive. Pure over
+Deliberately narrow: only an *actual* invisible control character or a curated
+phrase/family that benign metadata has no reason to carry fires, so ordinary
+text does not trip a false positive. Pure over
 its inputs and runs in the normal scan — no new I/O, no clock, no network. Raw
 surface values (which may hold secrets) never reach a finding; only the char
 codepoints or the matched curated phrase are named.
@@ -21,6 +24,7 @@ codepoints or the matched curated phrase are named.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 
 from ..adapters.base import ServerDecl
@@ -73,12 +77,68 @@ def hidden_unicode_codepoints(text: str) -> tuple[int, ...]:
     return tuple(sorted({ord(ch) for ch in text if ord(ch) in HIDDEN_CODEPOINTS}))
 
 
+# Phrase *families* the exact list misses ("ignore THE previous instructions",
+# "<IMPORTANT>" directive blocks, claims to outrank the user, instructions to
+# keep the user in the dark or to override the user's input). Each is something
+# tool metadata describing a tool has no reason to say, so these stay in the
+# high-confidence catalog. Measured on the MCPTox dev split (docs/BENCHMARKS.md);
+# a hit reports the fixed label, never the matched text. Every gap is bounded
+# ({0,N}) so matching stays linear on hostile input.
+_INJECTION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"\b(?:ignore|disregard|forget)\s+(?:all\s+|any\s+|the\s+)?"
+            r"(?:previous|prior|above|earlier|preceding)\s+"
+            r"(?:instructions|directions|rules|prompts?)",
+            re.IGNORECASE,
+        ),
+        "ignore previous instructions",
+    ),
+    (re.compile(r"<\s*/?\s*important\s*>", re.IGNORECASE), "<important> directive block"),
+    (
+        re.compile(
+            r"\b(?:priority|precedence)\s+(?:is\s+)?(?:higher|over|above)\b[^.]{0,40}"
+            r"\b(?:user|request|query|instructions)",
+            re.IGNORECASE,
+        ),
+        "claims priority over the user",
+    ),
+    (
+        re.compile(
+            r"\b(?:do\s+not|don't|never)\s+(?:tell|inform|notify|mention|reveal|disclose|alert)"
+            r"\b[^.]{0,30}\buser\b"
+            r"|\bwithout\s+(?:telling|informing|notifying|alerting)\s+the\s+user\b",
+            re.IGNORECASE,
+        ),
+        "hide this from the user",
+    ),
+    (
+        re.compile(
+            r"\bregardless\s+of\s+(?:the\s+|any\s+)?(?:user|their|input)"
+            r"|\b(?:ignore|disregard)\s+(?:any\s+|the\s+|their\s+|all\s+)?(?:other\s+)?"
+            r"(?:user'?s?\b|their\b|\w+\s+(?:specified|provided|given)\s+by\s+the\s+user"
+            r"|\w+\s+the\s+user\s+provides)",
+            re.IGNORECASE,
+        ),
+        "override the user's input",
+    ),
+)
+
+
 def injection_phrase(text: str) -> str | None:
-    """The first curated prompt-injection phrase in ``text`` (case-insensitive), or None."""
+    """The first prompt-injection signal in ``text`` (case-insensitive), or None.
+
+    Exact curated phrases are tried first, then the bounded phrase-family
+    patterns. Returns a fixed label from the catalog — never text from ``text``,
+    which may hold a secret.
+    """
     lowered = text.lower()
     for phrase in _INJECTION_PHRASES:
         if phrase in lowered:
             return phrase
+    for pattern, label in _INJECTION_PATTERNS:
+        if pattern.search(text):
+            return label
     return None
 
 
