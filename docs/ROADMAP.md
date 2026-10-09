@@ -27,8 +27,8 @@ stdlib, offline by default, deterministic, and fail-closed.
 
 | ID | Pri | MVP |
 |---|---|---|
-| `R-LIVE-TOOL-DRIFT` | P1 — **in progress** | Landed: per-tool drift facts and causes (`tool_added/removed/desc_changed/schema_changed/annot_relaxed/annot_tightened`) and a named-human ledger that accepts one tool version by digest. `baseline --import-mcp-lock` (mcpseal 0.1.4, verified against its published hash vectors; mismatch = `tool_pin_changed`). Remaining: SARIF before/after |
-| `R-LIVE-TOOLS-JSON` | P1 | `--tools-json FILE` offline fixture input (shared by flow analysis, conformance and bench) |
+| `R-LIVE-TOOL-DRIFT` | P1 — **landed** | Per-tool drift facts and causes (`tool_added/removed/desc_changed/schema_changed/annot_relaxed/annot_tightened`) and a named-human ledger that accepts one tool version by digest. `baseline --import-mcp-lock` (mcpseal 0.1.4, verified against its published hash vectors; mismatch = `tool_pin_changed`). `diff --sarif`: one `DRIFT-<CAUSE>` alert per regression with before/after digests, anchored on the baseline, accepted drift suppressed |
+| `R-LIVE-TOOLS-JSON` | P1 — **landed** | `--tools-json [NAME=]PATH`: a saved `tools/list` checked and pinned offline through the live path's parser and bounds, findings located at the file (shared by flow analysis, conformance and bench) |
 | `R-LIVE-STDIO` | P1 — **landed** | `--spawn-stdio NAME=IMAGE@sha256:…` + `--container-runtime`: operator-supplied, digest-pinned image run in the ADR-18 sandbox; shared bounded handshake with the HTTP path; real-container isolation proven in CI. Follow-up: `baseline --import-mcp-lock` (mcpseal), see R-LIVE-TOOL-DRIFT |
 | `R-SKILL-CONTENT` | P2 | Static checks over `SKILL.md`, `.claude/agents`, `.claude/commands`, plugin manifests and hooks (hooks are shell at event time) |
 | `R-SERVER-SOURCE` | P2 | Lightweight, deterministic source checks of locally installed MCP servers (shell-exec sinks, path handling, SSRF-prone fetches) — scoped to what stdlib `ast` can prove |

@@ -22,6 +22,11 @@ Trust boundary (ADR-1, ADR-12): the server is **untrusted**. Hardening:
 - **Never raises.** Every failure becomes a ``LiveManifest`` with ``error`` set,
   which the engine reports as an inspection gap rather than skipping in silence.
 
+**Offline input (R-LIVE-TOOLS-JSON).** :func:`load_tools_json` reads a saved
+``tools/list`` result from a file instead of a socket and runs it through the
+same validation and bounds, so a manifest captured once (or committed to a repo)
+can be checked and pinned with no server running and no network at all.
+
 Raw descriptions are retained on the result only so the pure checks in
 :mod:`mcpscan.checks.live_tools` can analyse them; they are never written to a
 report (findings name codepoints, curated phrases, and tool names only).
@@ -36,8 +41,10 @@ import time
 import unicodedata
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from ..domain import LiveToolPrint
+from ..io_safe import SafeReadError, safe_read_text
 from .sockets import is_loopback
 
 MAX_BODY_BYTES = 1024 * 1024
@@ -46,6 +53,8 @@ MAX_TOOLS = 2000
 MAX_PAGES = 50
 MAX_NAME_CHARS = 256
 MAX_DESCRIPTION_CHARS = 64 * 1024
+# A saved manifest holds every page at once, so it may exceed one page's body cap.
+MAX_TOOLS_JSON_BYTES = 8 * 1024 * 1024
 DEFAULT_TIMEOUT = 2.0
 _CHUNK_BYTES = 64 * 1024
 DEFAULT_DEADLINE = 10.0
@@ -576,3 +585,74 @@ def run_capture(session: CaptureSession, url: str) -> LiveManifest:
         malformed_entries=malformed,
         server_protocol_version=session.protocol_version or "",
     )
+
+
+# --- offline input (R-LIVE-TOOLS-JSON) ------------------------------------------
+
+
+def _listed_tools(document: object) -> object:
+    """The ``tools`` array from a saved manifest, or None for an unknown shape.
+
+    Accepted shapes: a ``tools/list`` result (``{"tools": [...]}``), a full
+    JSON-RPC response (``{"jsonrpc": ..., "result": {"tools": [...]}}``), or a
+    bare array of tools. Anything else is refused rather than guessed at.
+    """
+    if isinstance(document, list):
+        return document
+    if not isinstance(document, dict):
+        return None
+    result = document.get("result")
+    if "jsonrpc" in document and isinstance(result, dict):
+        document = result
+    tools = document.get("tools")
+    return tools if isinstance(tools, list) else None
+
+
+def manifest_from_tools_json(raw: bytes, url: str) -> LiveManifest:
+    """Validate a saved ``tools/list`` document into a manifest. Never raises.
+
+    Applies the live path's bounds and per-tool validation: JSON nesting ≤ 32,
+    no ``NaN``/``Infinity``, ≤ 2,000 tools (more marks the manifest
+    ``truncated``), and a malformed entry is counted, not trusted.
+    """
+    try:
+        document = _parse_json(raw)
+    except LiveToolsError as exc:
+        return LiveManifest(url=url, ok=False, error=str(exc))
+    listed = _listed_tools(document)
+    if not isinstance(listed, list):
+        return LiveManifest(url=url, ok=False, error="bad_tools_json")
+    tools: list[LiveTool] = []
+    malformed = 0
+    truncated = len(listed) > MAX_TOOLS
+    for item in listed[:MAX_TOOLS]:
+        tool = _parse_tool(item)
+        if tool is None:
+            malformed += 1
+        else:
+            tools.append(tool)
+    return LiveManifest(
+        url=url,
+        ok=True,
+        tools=tuple(tools),
+        truncated=truncated or malformed > 0,
+        malformed_entries=malformed,
+    )
+
+
+def load_tools_json(path: Path) -> LiveManifest:
+    """Read and validate a saved manifest file. Never raises.
+
+    The manifest's ``url`` is the file path, so findings point at the file (a
+    manifest committed to a repository is annotated by code scanning). The read
+    is size-capped and refuses FIFOs, devices and directories
+    (:func:`mcpscan.io_safe.safe_read_text`); any failure becomes a manifest
+    with ``ok=False`` and a short error code, reported as an inspection gap.
+    """
+    url = str(path)
+    try:
+        text = safe_read_text(path, path.resolve().parent, max_bytes=MAX_TOOLS_JSON_BYTES)
+    except SafeReadError:
+        return LiveManifest(url=url, ok=False, error="unreadable")
+    # One leading byte-order mark (Windows PowerShell's default) is tolerated.
+    return manifest_from_tools_json(text.removeprefix("\ufeff").encode("utf-8"), url)

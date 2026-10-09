@@ -73,7 +73,7 @@ from .datapack import (
     load_local_datapack,
     store_is_writable_by_others,
 )
-from .discovery.live_tools import LiveManifest, capture_manifest, fingerprint
+from .discovery.live_tools import LiveManifest, capture_manifest, fingerprint, load_tools_json
 from .discovery.process_env import iter_agent_process_envs, looks_like_agent
 from .discovery.sockets import EnumerationResult, enumerate_listening
 from .discovery.stdio_sandbox import capture_sandboxed
@@ -735,6 +735,7 @@ def scan(
     stdio_targets: Sequence[StdioTarget] = (),
     stdio_capture: StdioCapture | None = None,
     container_runtime: str = "auto",
+    tools_json_targets: Sequence[tuple[str, Path]] = (),
     now_epoch: int | None = None,
 ) -> Report:
     """Run a full localhost scan and return a deterministic Report.
@@ -784,6 +785,11 @@ def scan(
         stdio_capture: Inject the sandboxed capture (tests); defaults to
             :func:`mcpscan.discovery.stdio_sandbox.capture_sandboxed`.
         container_runtime: ``auto`` (podman, then docker), ``podman``, or ``docker``.
+        tools_json_targets: ``(name, path)`` saved ``tools/list`` documents to
+            check offline (R-LIVE-TOOLS-JSON), each reported as server
+            ``tools-json://NAME`` with findings located at the file. Independent
+            of ``inspect_live_tools``: reading a file opens no connection. An
+            unreadable or malformed file is reported un-inspected, never skipped.
         live_capture: Inject a capture function (tests); defaults to
             :func:`mcpscan.discovery.live_tools.capture_manifest`.
         now_epoch: "Now" in seconds since the epoch, supplied by ``cli`` so the
@@ -909,12 +915,13 @@ def scan(
                 )
 
     # --- live tool manifests over loopback MCP (opt-in; zero connections by default) ---
+    live: list[tuple[str, str | None, int | None, LiveManifest]] = []
     if inspect_live_tools:
         targets = list(live_tools_targets)
         if result is not None:
             targets += _live_targets_from_sockets(result, agent_catalog)
         http_capture = live_capture or capture_manifest
-        live: list[tuple[str, str | None, int | None, LiveManifest]] = [
+        live += [
             (f"live://{host}:{port}{path}", host, port, http_capture(host, port, path))
             for host, port, path in sorted(set(targets))
         ]
@@ -926,6 +933,12 @@ def scan(
                 (f"stdio://{name}", None, None, sandboxed(name, image))
                 for name, image in sorted(set(stdio_targets))
             ]
+    # --- saved manifests (offline; reads only the files the operator named) ---
+    live += [
+        (f"tools-json://{name}", None, None, load_tools_json(path))
+        for name, path in sorted(set(tools_json_targets))
+    ]
+    if live:
         servers.extend(_audit_live_tools(live))
 
     return _assemble_report(servers, online=online)
