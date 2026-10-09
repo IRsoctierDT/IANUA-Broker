@@ -27,9 +27,9 @@ stdlib, offline by default, deterministic, and fail-closed.
 
 | ID | Pri | MVP |
 |---|---|---|
-| `R-LIVE-TOOL-DRIFT` | P1 | Per-tool drift classes in `diff` (`TOOL-ADDED/REMOVED/DESC-CHANGED/SCHEMA-CHANGED/ANNOT-RELAXED`), accept ledger keyed `server:tool:digest`, SARIF before/after, `baseline --import-mcp-lock` (mcpseal) |
+| `R-LIVE-TOOL-DRIFT` | P1 — **in progress** | Landed: per-tool drift facts and causes (`tool_added/removed/desc_changed/schema_changed/annot_relaxed/annot_tightened`) and a named-human ledger that accepts one tool version by digest. Remaining: SARIF before/after; `baseline --import-mcp-lock` (mcpseal), pending verification of mcpseal's lockfile format against its source |
 | `R-LIVE-TOOLS-JSON` | P1 | `--tools-json FILE` offline fixture input (shared by flow analysis, conformance and bench) |
-| `R-LIVE-STDIO` | P1 — **gated** | `--spawn-stdio NAME`: launching a stdio server executes its code. Needs an explicit decision (sandbox, env scrubbing, per-server opt-in) before build |
+| `R-LIVE-STDIO` | P1 — **decided (ADR-18)** | `--spawn-stdio NAME`: launch a stdio server **only** inside a container sandbox (no network, read-only root, no home mount, scrubbed env, resource and time limits, per-server opt-in); fail closed without a runtime |
 | `R-SKILL-CONTENT` | P2 | Static checks over `SKILL.md`, `.claude/agents`, `.claude/commands`, plugin manifests and hooks (hooks are shell at event time) |
 | `R-SERVER-SOURCE` | P2 | Lightweight, deterministic source checks of locally installed MCP servers (shell-exec sinks, path handling, SSRF-prone fetches) — scoped to what stdlib `ast` can prove |
 

@@ -8,14 +8,19 @@ to ``127.0.0.1`` on an ephemeral port, so the suite runs unprivileged in CI.
 
 from __future__ import annotations
 
+import copy
+import json
 import socket
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from datetime import date
 from pathlib import Path
+from typing import Any
 
 import pytest
 from _live_mcp_server import CLEAN_TOOLS, RUG_PULLED_TOOLS, FixtureServer, ServerBehaviour
 
 from mcpscan import cli
+from mcpscan.acceptance import apply_tool_drift_acceptances, parse_ledger
 from mcpscan.checks.live_tools import check_cross_server_shadowing, check_live_manifest
 from mcpscan.discovery import live_tools
 from mcpscan.discovery.live_tools import (
@@ -25,7 +30,18 @@ from mcpscan.discovery.live_tools import (
     tool_digest,
 )
 from mcpscan.domain import Report
-from mcpscan.drift import DriftCause, build_snapshot, diff_snapshots
+from mcpscan.drift import (
+    Direction,
+    DriftCause,
+    DriftEntry,
+    DriftReport,
+    FactKind,
+    PostureFact,
+    Snapshot,
+    build_snapshot,
+    diff_snapshots,
+)
+from mcpscan.drift.render import render_json_drift, render_terminal_drift
 from mcpscan.engine import LiveTarget, scan
 
 # --- capture: protocol --------------------------------------------------------
@@ -340,15 +356,16 @@ def test_default_scan_opens_no_connection_even_with_targets(tmp_path: Path) -> N
     assert not any(s.id.startswith("live://") for s in report.servers)
 
 
-def test_opt_in_scan_reports_live_server_with_manifest_identity(tmp_path: Path) -> None:
+def test_opt_in_scan_reports_live_server_with_tool_fingerprints(tmp_path: Path) -> None:
     with FixtureServer(ServerBehaviour(pages=[RUG_PULLED_TOOLS])) as srv:
         target = ("127.0.0.1", srv.port, "/mcp")
         report = _scan(tmp_path, inspect_live_tools=True, live_tools_targets=[target, target])
-        expected = capture_manifest(*target).manifest_digest
+        expected = {t.name: t.digest for t in capture_manifest(*target).tools}
     live = [s for s in report.servers if s.id.startswith("live://")]
     assert len(live) == 1  # duplicate targets are de-duplicated
     server = live[0]
-    assert server.tool_identity == expected
+    assert server.tool_identity is None  # pinning is per tool, not per manifest
+    assert {t.name: t.digest for t in server.live_tools} == expected
     assert server.running and not server.inspection_incomplete
     assert {f.id for f in server.findings} == {
         "LIVE-TOOL-HIDDEN-UNICODE",
@@ -369,7 +386,7 @@ def test_unreachable_target_marks_inspection_incomplete(tmp_path: Path) -> None:
     assert [f.id for f in server.findings] == ["LIVE-TOOLS-UNAVAILABLE"]
 
 
-def test_rug_pull_between_baseline_and_diff_is_tool_identity_drift(tmp_path: Path) -> None:
+def test_rug_pull_between_baseline_and_diff_is_a_tool_regression(tmp_path: Path) -> None:
     behaviour = ServerBehaviour(pages=[list(CLEAN_TOOLS)])
     with FixtureServer(behaviour) as srv:
         target = ("127.0.0.1", srv.port, "/mcp")
@@ -381,8 +398,11 @@ def test_rug_pull_between_baseline_and_diff_is_tool_identity_drift(tmp_path: Pat
             _scan(tmp_path, inspect_live_tools=True, live_tools_targets=[target])
         )
     drift = diff_snapshots(before, after)
-    causes = {e.cause for e in drift.regressions}
-    assert DriftCause.TOOL_IDENTITY_DRIFT in causes
+    causes = {e.cause for e in drift.regressions if e.kind is FactKind.TOOL}
+    assert causes == {DriftCause.TOOL_DESC_CHANGED}
+    # The poisoned text also raises new findings: those are separate regressions
+    # that a tool-drift acceptance can never waive.
+    assert {e.kind for e in drift.regressions} == {FactKind.TOOL, FactKind.FINDING}
 
 
 def test_unchanged_server_is_not_drift(tmp_path: Path) -> None:
@@ -447,3 +467,238 @@ def test_cli_scan_discloses_and_reports(tmp_path: Path, capsys: pytest.CaptureFi
     payload = out.read_text(encoding="utf-8")
     assert "LIVE-TOOL-INJECTION-TEXT" in payload
     assert "attacker.example" not in payload  # raw description never persisted
+
+
+# --- per-tool drift (R-LIVE-TOOL-DRIFT) ---------------------------------------
+
+
+def _live_snapshot(tmp_path: Path, behaviour: ServerBehaviour, srv: FixtureServer) -> Snapshot:
+    target = ("127.0.0.1", srv.port, "/mcp")
+    return build_snapshot(_scan(tmp_path, inspect_live_tools=True, live_tools_targets=[target]))
+
+
+def _tool_entries(before: Snapshot, after: Snapshot) -> dict[str, DriftEntry]:
+    return {
+        e.key.rsplit(":", 1)[1]: e
+        for e in diff_snapshots(before, after).entries
+        if e.kind is FactKind.TOOL
+    }
+
+
+def _with(tool: dict[str, Any], **changes: Any) -> dict[str, Any]:
+    return {**copy.deepcopy(tool), **changes}
+
+
+def test_tool_facts_hold_digests_not_text(tmp_path: Path) -> None:
+    behaviour = ServerBehaviour(pages=[list(RUG_PULLED_TOOLS)])
+    with FixtureServer(behaviour) as srv:
+        snap = _live_snapshot(tmp_path, behaviour, srv)
+    tools = [f for f in snap.facts if f.kind is FactKind.TOOL]
+    assert {f.key.rsplit(":", 1)[1] for f in tools} == {"read_file", "send_email"}
+    blob = repr(snap)
+    assert "attacker.example" not in blob  # description text is never persisted
+    read_file = next(f for f in tools if f.key.endswith(":read_file")).detail_map()
+    assert read_file["annotation.readOnlyHint"] == "true"
+    assert len(read_file["description"]) == 64
+
+
+@pytest.mark.parametrize(
+    ("mutate", "cause"),
+    [
+        (lambda t: _with(t, description="Changed."), DriftCause.TOOL_DESC_CHANGED),
+        (
+            lambda t: _with(t, inputSchema={"type": "object", "properties": {"x": {}}}),
+            DriftCause.TOOL_SCHEMA_CHANGED,
+        ),
+        (lambda t: _with(t, annotations={"readOnlyHint": False}), DriftCause.TOOL_ANNOT_RELAXED),
+        (
+            lambda t: _with(t, annotations={"readOnlyHint": True, "destructiveHint": False}),
+            DriftCause.TOOL_ANNOT_TIGHTENED,
+        ),
+    ],
+)
+def test_each_change_class_is_a_named_regression(
+    tmp_path: Path, mutate: Callable[[dict[str, Any]], dict[str, Any]], cause: DriftCause
+) -> None:
+    # read_file starts {"readOnlyHint": True}; send_email is the mutation target
+    # for TIGHTENED (it starts readOnly False / destructive False).
+    target = 0 if cause is not DriftCause.TOOL_ANNOT_TIGHTENED else 1
+    pages = [copy.deepcopy(CLEAN_TOOLS)]
+    behaviour = ServerBehaviour(pages=pages)
+    with FixtureServer(behaviour) as srv:
+        before = _live_snapshot(tmp_path, behaviour, srv)
+        mutated = copy.deepcopy(CLEAN_TOOLS)
+        mutated[target] = mutate(mutated[target])
+        behaviour.pages = [mutated]
+        after = _live_snapshot(tmp_path, behaviour, srv)
+    entries = _tool_entries(before, after)
+    name = CLEAN_TOOLS[target]["name"]
+    assert entries[name].direction is Direction.REGRESSION
+    assert entries[name].cause is cause
+    assert set(entries) == {name}  # the untouched tool does not drift
+
+
+def test_added_tool_on_known_server_is_regression_removed_is_info(tmp_path: Path) -> None:
+    behaviour = ServerBehaviour(pages=[[CLEAN_TOOLS[0]]])
+    with FixtureServer(behaviour) as srv:
+        before = _live_snapshot(tmp_path, behaviour, srv)
+        behaviour.pages = [[CLEAN_TOOLS[1]]]
+        after = _live_snapshot(tmp_path, behaviour, srv)
+    entries = _tool_entries(before, after)
+    assert entries["send_email"].cause is DriftCause.TOOL_ADDED
+    assert entries["send_email"].direction is Direction.REGRESSION
+    assert entries["read_file"].cause is DriftCause.TOOL_REMOVED
+    assert entries["read_file"].direction is Direction.INFORMATIONAL
+
+
+def test_tools_of_a_new_server_are_informational(tmp_path: Path) -> None:
+    with FixtureServer() as srv:
+        after = _live_snapshot(tmp_path, ServerBehaviour(), srv)
+    entries = _tool_entries(Snapshot(schema_version=after.schema_version), after)
+    assert entries and all(e.direction is Direction.INFORMATIONAL for e in entries.values())
+
+
+def test_postmark_style_rug_pull_reports_the_tool_and_class(tmp_path: Path) -> None:
+    behaviour = ServerBehaviour(pages=[list(CLEAN_TOOLS)])
+    with FixtureServer(behaviour) as srv:
+        before = _live_snapshot(tmp_path, behaviour, srv)
+        behaviour.pages = [list(RUG_PULLED_TOOLS)]
+        after = _live_snapshot(tmp_path, behaviour, srv)
+    entries = _tool_entries(before, after)
+    assert set(entries) == {"send_email"}
+    assert entries["send_email"].cause is DriftCause.TOOL_DESC_CHANGED
+
+
+def test_duplicate_names_get_distinct_keys(tmp_path: Path) -> None:
+    behaviour = ServerBehaviour(pages=[[CLEAN_TOOLS[0], _with(CLEAN_TOOLS[0], description="x")]])
+    with FixtureServer(behaviour) as srv:
+        snap = _live_snapshot(tmp_path, behaviour, srv)
+    keys = sorted(f.key.rsplit(":", 1)[1] for f in snap.facts if f.kind is FactKind.TOOL)
+    assert keys == ["read_file", "read_file#2"]
+
+
+# A benign vendor wording change: tool drift with no poisoning finding attached.
+REWORDED_TOOLS = [CLEAN_TOOLS[0], _with(CLEAN_TOOLS[1], description="Send one email.")]
+
+
+def _drift_with_rug_pull(tmp_path: Path) -> tuple[DriftReport, str, str]:
+    behaviour = ServerBehaviour(pages=[list(CLEAN_TOOLS)])
+    with FixtureServer(behaviour) as srv:
+        before = _live_snapshot(tmp_path, behaviour, srv)
+        behaviour.pages = [list(REWORDED_TOOLS)]
+        after = _live_snapshot(tmp_path, behaviour, srv)
+        server = f"live://127.0.0.1:{srv.port}/mcp"
+    entry = _tool_entries(before, after)["send_email"]
+    return diff_snapshots(before, after), server, dict(entry.detail_after)["digest"]
+
+
+def _ledger(server: str, digest: str, expires: str) -> str:
+    return json.dumps(
+        {
+            "acceptances": [
+                {
+                    "server": server,
+                    "tool": "send_email",
+                    "digest": digest,
+                    "owner": "IDRozenblad",
+                    "expires": expires,
+                    "reason": "reviewed vendor changelog",
+                }
+            ]
+        }
+    )
+
+
+def test_accepted_tool_drift_stops_gating(tmp_path: Path) -> None:
+    report, server, digest = _drift_with_rug_pull(tmp_path)
+    ledger = parse_ledger(_ledger(server, digest, "2099-01-01"), "test")
+    assert not ledger.warnings and not ledger.entries and len(ledger.tool_entries) == 1
+    waived = apply_tool_drift_acceptances(report, ledger.tool_entries, today=date(2026, 10, 9))
+    entry = next(e for e in waived.entries if e.kind is FactKind.TOOL)
+    assert waived.regressions == ()
+    assert entry.direction is Direction.INFORMATIONAL
+    assert entry.acceptance is not None and entry.acceptance.owner == "IDRozenblad"
+    assert "accepted: owner IDRozenblad" in render_terminal_drift(waived)
+    tool_json = next(
+        e for e in json.loads(render_json_drift(waived))["entries"] if e["kind"] == "tool"
+    )
+    assert tool_json["acceptance"]["expired"] is False
+
+
+def test_expired_or_stale_digest_acceptance_still_gates(tmp_path: Path) -> None:
+    report, server, digest = _drift_with_rug_pull(tmp_path)
+    expired = parse_ledger(_ledger(server, digest, "2026-01-01"), "t").tool_entries
+    out = apply_tool_drift_acceptances(report, expired, today=date(2026, 10, 9))
+    entry = next(e for e in out.entries if e.kind is FactKind.TOOL)
+    assert entry.direction is Direction.REGRESSION
+    assert entry.acceptance is not None and entry.acceptance.expired
+    assert "EXPIRED" in render_terminal_drift(out)
+    # An acceptance for some other version of the tool does not apply.
+    other = parse_ledger(_ledger(server, "a" * 64, "2099-01-01"), "t").tool_entries
+    out = apply_tool_drift_acceptances(report, other, today=date(2026, 10, 9))
+    assert next(e for e in out.entries if e.kind is FactKind.TOOL).acceptance is None
+
+
+@pytest.mark.parametrize("digest", ["", "short", "G" * 64, "A" * 64])
+def test_tool_acceptance_requires_a_real_digest(digest: str) -> None:
+    loaded = parse_ledger(_ledger("live://127.0.0.1:1/mcp", digest, "2099-01-01"), "t")
+    assert not loaded.tool_entries
+    assert loaded.warnings
+
+
+def test_cli_diff_gates_on_rug_pull_and_ledger_waives_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    behaviour = ServerBehaviour(pages=[list(CLEAN_TOOLS)])
+    base = tmp_path / "base.json"
+    with FixtureServer(behaviour) as srv:
+        common = [
+            "--root",
+            str(tmp_path),
+            "--no-inventory",
+            "--inspect-live-tools",
+            "--live-tools-target",
+            f"127.0.0.1:{srv.port}/mcp",
+        ]
+        assert cli.main(["baseline", "--out", str(base), *common]) == 0
+        behaviour.pages = [list(REWORDED_TOOLS)]
+        code = cli.main(["diff", "--baseline", str(base), "--fail-on-regression", *common])
+        out = capsys.readouterr().out
+        assert code == 1
+        assert "tool-desc-changed" in out and "'send_email'" in out
+        digest = next(
+            t.digest
+            for t in capture_manifest("127.0.0.1", srv.port).tools
+            if t.name == "send_email"
+        )
+        server = f"live://127.0.0.1:{srv.port}/mcp"
+        (tmp_path / ".mcpscan-accept.json").write_text(
+            _ledger(server, digest, "2099-01-01"), encoding="utf-8"
+        )
+        code = cli.main(["diff", "--baseline", str(base), "--fail-on-regression", *common])
+    assert code == 0
+    assert "accepted: owner IDRozenblad" in capsys.readouterr().out
+
+
+def test_pre_per_tool_baseline_does_not_manufacture_tool_added() -> None:
+    server_id = "live://127.0.0.1:1/mcp"
+    old_server = PostureFact(
+        kind=FactKind.SERVER,
+        key=f"server:{server_id}",
+        summary=server_id,
+        detail=(("exposure", "local"), ("tool_identity", "f" * 64)),
+    )
+    new_tool = PostureFact(
+        kind=FactKind.TOOL,
+        key=f"tool:{server_id}:read_file",
+        summary="t",
+        detail=(("digest", "a" * 64), ("server", server_id)),
+    )
+    new_server = PostureFact(
+        kind=FactKind.SERVER, key=old_server.key, summary=server_id, detail=(("exposure", "local"),)
+    )
+    report = diff_snapshots(
+        Snapshot(schema_version="1.0", facts=(old_server,)),
+        Snapshot(schema_version="1.0", facts=(new_server, new_tool)),
+    )
+    assert report.regressions == ()

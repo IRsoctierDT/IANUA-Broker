@@ -289,8 +289,8 @@ every tool's name, description, input/output schema strings and annotations:
 path defaults to `/mcp`) plus listening sockets owned by a process that
 positively identifies as an agent/MCP server — an unrelated local service is
 never sent JSON-RPC. **Rug pulls:** each tool is fingerprinted as
-`sha256` over its NFC-normalized name, description, schemas and annotations;
-the order-independent manifest digest becomes the server's `tool_identity`, so
+`sha256` over its NFC-normalized name, description, schemas and annotations,
+and `baseline` pins every tool's digest, so
 
 ```bash
 mcpscan baseline --out base.json --inspect-live-tools --live-tools-target 127.0.0.1:8765
@@ -298,13 +298,37 @@ mcpscan diff --baseline base.json --fail-on-regression --inspect-live-tools --li
 ```
 
 fails CI the moment a server silently changes a tool (the postmark-mcp 1.0.16
-and Cursor CVE-2025-54136 classes). **Hardening:** the server is untrusted —
+and Cursor CVE-2025-54136 classes). Every tool is pinned individually, by
+digest only (description text is never written to the baseline), and `diff`
+names the tool and the class of change:
+
+| Drift cause | Direction | Meaning |
+|---|---|---|
+| `tool-desc-changed` | Regression | The description the model reads changed |
+| `tool-schema-changed` | Regression | Input or output schema changed |
+| `tool-annot-relaxed` | Regression | Hints now claim more capability (e.g. `readOnlyHint` true → false) |
+| `tool-annot-tightened` | Regression | Hints now claim less — still unapproved, and hosts may auto-approve on these claims |
+| `tool-added` | Regression | A server pinned at baseline gained a tool |
+| `tool-removed` | Info | Capability shrank |
+
+A named human can accept **one specific version** of a changed tool in
+`.mcpscan-accept.json`; any further change produces a new digest and gates
+again, and an expired acceptance gates loudly:
+
+```json
+{"acceptances": [{"server": "live://127.0.0.1:8765/mcp", "tool": "send_email",
+  "digest": "<new 64-hex digest from diff --json>", "owner": "IDRozenblad",
+  "expires": "2026-12-31", "reason": "reviewed vendor changelog"}]}
+```
+
+A tool-drift acceptance never waives a finding: if the new text is poisoned,
+the `LIVE-TOOL-*` findings still gate. **Hardening:** the server is untrusted —
 non-loopback hosts are refused before any socket opens; `http.client` is used
 directly so `HTTP(S)_PROXY` is never consulted and redirects are never
 followed; no credentials are sent; responses are capped at 1 MiB, JSON depth
 32, 2,000 tools and 50 pages under an overall deadline; findings never quote a
-raw description. Stdio-only servers are not yet inspected (spawning one runs
-its code; see the roadmap).
+raw description. Stdio-only servers are not yet inspected: spawning one runs
+its code, so it will happen only inside a container sandbox (ADR-18).
 
 ### Drift detection (`mcpscan baseline` / `mcpscan diff`)
 

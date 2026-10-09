@@ -73,7 +73,7 @@ from .datapack import (
     load_local_datapack,
     store_is_writable_by_others,
 )
-from .discovery.live_tools import LiveManifest, capture_manifest
+from .discovery.live_tools import LiveManifest, capture_manifest, fingerprint
 from .discovery.process_env import iter_agent_process_envs, looks_like_agent
 from .discovery.sockets import EnumerationResult, enumerate_listening
 from .domain import Finding, Report, Server, ServerState
@@ -950,10 +950,13 @@ def _audit_live_tools(targets: Sequence[LiveTarget], capture: LiveCapture) -> li
                 running=manifest.ok,
                 inspection_incomplete=(not manifest.ok) or manifest.truncated,
                 findings=tuple(findings),
-                # Rug-pull fingerprint: the canonical manifest digest. A changed
-                # tool description/schema/annotation under the same endpoint is
-                # tool_identity drift in baseline/diff.
-                tool_identity=manifest.manifest_digest,
+                # Rug-pull pinning is per tool (R-LIVE-TOOL-DRIFT): each tool
+                # becomes its own drift fact, so a change is reported by tool
+                # and class and can be accepted individually. No server-level
+                # tool_identity: it would re-flag the same change and could
+                # not be waived. Baselines from R-LIVE-TOOLS that carry one
+                # diff clean (absent == unchanged).
+                live_tools=tuple(fingerprint(t) for t in manifest.tools),
             )
         )
     return servers

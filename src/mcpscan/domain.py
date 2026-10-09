@@ -117,6 +117,23 @@ class Finding:
 
 
 @dataclass(frozen=True)
+class LiveToolPrint:
+    """Secret-free fingerprint of one tool from a live ``tools/list`` (R-LIVE-TOOL-DRIFT).
+
+    Digests only — never the description text — so a baseline can pin each tool
+    without persisting untrusted (possibly secret-bearing) metadata.
+    ``annotations`` holds only the four standard MCP behaviour hints that were
+    actually present, as ``(hint, "true"|"false")`` pairs.
+    """
+
+    name: str
+    digest: str
+    description_digest: str
+    schema_digest: str
+    annotations: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
 class Server:
     """An MCP server, running or declared, with its findings."""
 
@@ -135,6 +152,11 @@ class Server:
     # whose code/tools silently changed. ``None`` for sockets/process/env
     # servers, which have no declared launch identity.
     tool_identity: str | None = None
+    # Per-tool fingerprints of a live MCP server's advertised tools, set only for
+    # servers inspected with ``--inspect-live-tools``. Drift pins each tool so a
+    # rug pull is reported per tool and per change class, not just as a changed
+    # manifest digest.
+    live_tools: tuple[LiveToolPrint, ...] = ()
 
 
 @dataclass(frozen=True)

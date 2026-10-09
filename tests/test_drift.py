@@ -522,7 +522,7 @@ def test_json_render_carries_cause_and_bumped_schema() -> None:
     base = build_snapshot(_report(_server("s", bind="127.0.0.1", port=8000)))
     curr = build_snapshot(_report(_server("s", bind="0.0.0.0", port=8000)))
     payload = json.loads(render_json_drift(diff_snapshots(base, curr)))
-    assert payload["schema_version"] == "1.1"
+    assert payload["schema_version"] == "1.2"
     assert payload["entries"][0]["cause"] == "exposure_drift"
 
 

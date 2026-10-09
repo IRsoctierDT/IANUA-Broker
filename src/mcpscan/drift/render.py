@@ -21,7 +21,9 @@ from .staleness import StalenessVerdict
 # 1.1: entries gained a "cause" key (the degradation-cause vocabulary), and the
 # payload gained "baseline_created_at" / "baseline_age_days" / "stale"
 # (validation-age staleness).
-_DRIFT_JSON_SCHEMA_VERSION = "1.1"
+# 1.2: "tool" entries (per-tool live drift, R-LIVE-TOOL-DRIFT) with tool_* causes,
+# and an optional "acceptance" object on entries a named human waived.
+_DRIFT_JSON_SCHEMA_VERSION = "1.2"
 
 _CHANGE_MARK: dict[ChangeType, str] = {
     ChangeType.ADDED: "+",
@@ -75,6 +77,13 @@ def render_terminal_drift(report: DriftReport, *, staleness: StalenessVerdict | 
         mark = _CHANGE_MARK[entry.change]
         label = _DIRECTION_LABEL[entry.direction]
         lines.append(f"  {mark} [{label:11}] [{_cause_tag(entry)}] {inert_text(entry.summary)}")
+        if entry.acceptance is not None:
+            acc = entry.acceptance
+            state = "EXPIRED — gating again" if acc.expired else "accepted"
+            lines.append(
+                f"      {state}: owner {inert_text(acc.owner)}, until {inert_text(acc.expires)}"
+                + (f" — {inert_text(acc.reason)}" if acc.reason else "")
+            )
         if entry.change is ChangeType.CHANGED:
             before = dict(entry.detail_before)
             after = dict(entry.detail_after)
@@ -88,7 +97,17 @@ def render_terminal_drift(report: DriftReport, *, staleness: StalenessVerdict | 
 
 
 def _entry_to_dict(entry: DriftEntry) -> dict[str, object]:
+    acceptance: dict[str, object] | None = None
+    if entry.acceptance is not None:
+        acceptance = {
+            "owner": entry.acceptance.owner,
+            "accepted": entry.acceptance.accepted,
+            "expires": entry.acceptance.expires,
+            "reason": entry.acceptance.reason,
+            "expired": entry.acceptance.expired,
+        }
     return {
+        "acceptance": acceptance,
         "change": entry.change.value,
         "kind": entry.kind.value,
         "key": entry.key,

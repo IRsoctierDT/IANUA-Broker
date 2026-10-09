@@ -36,7 +36,7 @@ from . import __version__
 from .domain import Report, Severity
 
 if TYPE_CHECKING:
-    from .drift import Snapshot
+    from .drift import DriftReport, Snapshot
     from .graph import AttackGraph
 
 _THRESHOLDS = {
@@ -710,6 +710,7 @@ def _run_diff(args: argparse.Namespace) -> int:
 
     current = _posture_snapshot(args)
     report = diff_snapshots(baseline, current)
+    report = _apply_tool_drift_ledger(report, args.root)
 
     print(render_terminal_drift(report, staleness=staleness), end="")
     if args.json is not None:
@@ -1325,6 +1326,22 @@ def _apply_fixes(roots: list[Path] | None, opts: object) -> None:
         print("no auto-fixable tool-scope findings.", file=sys.stderr)
     else:
         print(f"applied {total} fix(es). Re-run mcpscan to confirm.", file=sys.stderr)
+
+
+def _apply_tool_drift_ledger(report: DriftReport, roots: list[Path] | None) -> DriftReport:
+    """Waive per-tool drift that a named human accepted in ``.mcpscan-accept.json``.
+
+    "today" is read here, once, so :mod:`mcpscan.acceptance` stays clock-free.
+    Ledger warnings go to stderr; a malformed ledger never fails the diff.
+    """
+    from datetime import datetime
+
+    from .acceptance import apply_tool_drift_acceptances, load_ledgers
+
+    ledger = load_ledgers(roots if roots is not None else [Path.cwd()])
+    for warning in ledger.warnings:
+        print(f"warning: {warning}", file=sys.stderr)
+    return apply_tool_drift_acceptances(report, ledger.tool_entries, today=datetime.now(UTC).date())
 
 
 def _apply_acceptance_ledger(report: Report, roots: list[Path] | None) -> Report:
