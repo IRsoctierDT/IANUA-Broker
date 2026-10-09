@@ -140,6 +140,9 @@ def test_a_surface_reports_injection_instead_of_a_weaker_directive() -> None:
         "ignore " * 40_000,
         "failure to " + "y " * 50_000,
     ],
+    # Short ids: pytest exports the test id in PYTEST_CURRENT_TEST, and Windows
+    # caps an environment variable at 32,767 characters.
+    ids=["before-using", "must-set", "when-using", "ignore", "failure-to"],
 )
 def test_patterns_stay_fast_on_hostile_input(hostile: str) -> None:
     started = time.perf_counter()
