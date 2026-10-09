@@ -76,6 +76,7 @@ from .datapack import (
 from .discovery.live_tools import LiveManifest, capture_manifest, fingerprint
 from .discovery.process_env import iter_agent_process_envs, looks_like_agent
 from .discovery.sockets import EnumerationResult, enumerate_listening
+from .discovery.stdio_sandbox import capture_sandboxed
 from .domain import Finding, Report, Server, ServerState
 from .io_safe import SafeReadError, safe_read_text
 from .scoring import dimension_grades, grade_server, worst_grade
@@ -91,6 +92,10 @@ OsvFetch = Callable[[str, str, str], "tuple[tuple[str, ...], bool]"]
 LiveTarget = tuple[str, int, str]
 # (host, port, path) -> captured manifest; injectable for tests.
 LiveCapture = Callable[[str, int, str], LiveManifest]
+# A sandboxed stdio target: (server name, image pinned by digest).
+StdioTarget = tuple[str, str]
+# (name, image) -> captured manifest; injectable for tests.
+StdioCapture = Callable[[str, str], LiveManifest]
 
 
 def _adapters() -> tuple[HostAdapter, ...]:
@@ -727,6 +732,9 @@ def scan(
     inspect_live_tools: bool = False,
     live_tools_targets: Sequence[LiveTarget] = (),
     live_capture: LiveCapture | None = None,
+    stdio_targets: Sequence[StdioTarget] = (),
+    stdio_capture: StdioCapture | None = None,
+    container_runtime: str = "auto",
     now_epoch: int | None = None,
 ) -> Report:
     """Run a full localhost scan and return a deterministic Report.
@@ -768,6 +776,14 @@ def scan(
         live_tools_targets: Explicit ``(host, port, path)`` loopback targets;
             consulted only when ``inspect_live_tools`` is True. A non-loopback
             host is refused by the capture layer and reported, never contacted.
+        stdio_targets: ``(name, image)`` stdio servers to inspect **inside the
+            ADR-18 container sandbox** (no network, read-only root, no host env
+            or mounts, resource limits), from an operator-supplied image pinned
+            by digest. Consulted only when ``inspect_live_tools`` is True. No
+            runtime or an unpinned image is reported un-inspected (fail closed).
+        stdio_capture: Inject the sandboxed capture (tests); defaults to
+            :func:`mcpscan.discovery.stdio_sandbox.capture_sandboxed`.
+        container_runtime: ``auto`` (podman, then docker), ``podman``, or ``docker``.
         live_capture: Inject a capture function (tests); defaults to
             :func:`mcpscan.discovery.live_tools.capture_manifest`.
         now_epoch: "Now" in seconds since the epoch, supplied by ``cli`` so the
@@ -897,7 +913,20 @@ def scan(
         targets = list(live_tools_targets)
         if result is not None:
             targets += _live_targets_from_sockets(result, agent_catalog)
-        servers.extend(_audit_live_tools(targets, live_capture or capture_manifest))
+        http_capture = live_capture or capture_manifest
+        live: list[tuple[str, str | None, int | None, LiveManifest]] = [
+            (f"live://{host}:{port}{path}", host, port, http_capture(host, port, path))
+            for host, port, path in sorted(set(targets))
+        ]
+        if stdio_targets:
+            sandboxed = stdio_capture or (
+                lambda name, image: capture_sandboxed(name, image, runtime=container_runtime)
+            )
+            live += [
+                (f"stdio://{name}", None, None, sandboxed(name, image))
+                for name, image in sorted(set(stdio_targets))
+            ]
+        servers.extend(_audit_live_tools(live))
 
     return _assemble_report(servers, online=online)
 
@@ -927,21 +956,22 @@ def _live_targets_from_sockets(
     return targets
 
 
-def _audit_live_tools(targets: Sequence[LiveTarget], capture: LiveCapture) -> list[Server]:
-    """Capture and check each distinct loopback target; one Server per target.
+def _audit_live_tools(
+    captured: Sequence[tuple[str, str | None, int | None, LiveManifest]],
+) -> list[Server]:
+    """Check each captured manifest (HTTP or sandboxed stdio); one Server each.
 
-    Targets are de-duplicated and captured in sorted order, so the report is
-    deterministic regardless of discovery order.
+    Shadowing is computed across every live server together, so a stdio server
+    and an HTTP server exposing the same tool name are flagged against each
+    other. Callers pass targets in sorted order, so the report is deterministic.
     """
-    unique = sorted(set(targets))
-    manifests = [capture(*target) for target in unique]
-    shadowing = check_cross_server_shadowing(manifests)
+    shadowing = check_cross_server_shadowing([m for *_, m in captured])
     servers: list[Server] = []
-    for (host, port, path), manifest in zip(unique, manifests, strict=True):
+    for server_id, host, port, manifest in captured:
         findings = check_live_manifest(manifest) + shadowing.get(manifest.url, [])
         servers.append(
             Server(
-                id=f"live://{host}:{port}{path}",
+                id=server_id,
                 bind_addr=host,
                 port=port,
                 pid=None,
@@ -952,10 +982,7 @@ def _audit_live_tools(targets: Sequence[LiveTarget], capture: LiveCapture) -> li
                 findings=tuple(findings),
                 # Rug-pull pinning is per tool (R-LIVE-TOOL-DRIFT): each tool
                 # becomes its own drift fact, so a change is reported by tool
-                # and class and can be accepted individually. No server-level
-                # tool_identity: it would re-flag the same change and could
-                # not be waived. Baselines from R-LIVE-TOOLS that carry one
-                # diff clean (absent == unchanged).
+                # and class and can be accepted individually.
                 live_tools=tuple(fingerprint(t) for t in manifest.tools),
             )
         )

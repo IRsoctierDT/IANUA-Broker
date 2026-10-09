@@ -198,6 +198,11 @@ unless noted. These are inputs the Principal Architect validates before Sprint 1
   the operator's full file and network access — the exact supply-chain blast
   radius the scanner exists to measure. Never-launch is safest but leaves
   stdio servers (most local MCP servers) uninspected.
+- **Image source (owner decision, 2026-10-09):** the operator supplies an image
+  that runs the server, referenced by an immutable digest (`repo@sha256:…` or a
+  local image id). mcpscan runs it with `--pull never` and never downloads or
+  builds anything: a registry fetch inside the scan would be both egress and
+  unreviewed code. Tags are refused because they can move.
 - **Consequence:** no container runtime → the inspection is refused and
   reported as un-inspected (fail closed), never downgraded to a host process.
   Offline `--tools-json` import (R-LIVE-TOOLS-JSON) remains the zero-execution

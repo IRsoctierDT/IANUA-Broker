@@ -341,14 +341,18 @@ def _looks_like_response(payload: bytes) -> bool:
 # --- protocol -----------------------------------------------------------------
 
 
+# (body, headers, expect_response) -> (status, lowercased headers, payload).
+# HTTP maps this onto one POST; stdio onto one line written (plus, when a
+# response is expected, the matching line read back).
+Sender = Callable[[bytes, dict[str, str], bool], tuple[int, dict[str, str], bytes]]
+
+
 @dataclass
-class _Session:
-    host: str
-    port: int
-    path: str
-    timeout: float
+class CaptureSession:
+    """MCP client state for one capture over an abstract :data:`Sender`."""
+
+    send: Sender
     deadline: float
-    transport: Transport
     session_id: str | None = None
     protocol_version: str | None = None
     next_id: int = 1
@@ -364,12 +368,10 @@ class _Session:
             headers["MCP-Protocol-Version"] = self.protocol_version
         return headers
 
-    def _post(self, body: bytes) -> tuple[int, dict[str, str], bytes]:
+    def _post(self, body: bytes, expect_response: bool) -> tuple[int, dict[str, str], bytes]:
         if time.monotonic() > self.deadline:
             raise LiveToolsError("deadline_exceeded")
-        return self.transport(
-            self.host, self.port, self.path, body, self._headers(), self.timeout, self.deadline
-        )
+        return self.send(body, self._headers(), expect_response)
 
     def request(
         self, method: str, params: dict[str, object]
@@ -379,7 +381,7 @@ class _Session:
         body = json.dumps(
             {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}
         ).encode("utf-8")
-        status, headers, payload = self._post(body)
+        status, headers, payload = self._post(body, True)
         if not 200 <= status < 300:
             # 3xx included: redirects are never followed (no off-host hop).
             raise LiveToolsError(f"http_{status}")
@@ -395,7 +397,7 @@ class _Session:
 
     def notify(self, method: str) -> None:
         body = json.dumps({"jsonrpc": "2.0", "method": method}).encode("utf-8")
-        status, _headers, _payload = self._post(body)
+        status, _headers, _payload = self._post(body, False)
         if not 200 <= status < 300:
             raise LiveToolsError(f"http_{status}")
 
@@ -477,14 +479,25 @@ def capture_manifest(
     ):
         return LiveManifest(url=url, ok=False, error="bad_path")
 
-    session = _Session(
-        host=host,
-        port=port,
-        path=path,
-        timeout=timeout,
-        deadline=time.monotonic() + deadline,
-        transport=transport or _http_post,
-    )
+    send_http = transport or _http_post
+
+    def send(
+        body: bytes, headers: dict[str, str], _expect: bool
+    ) -> tuple[int, dict[str, str], bytes]:
+        return send_http(host, port, path, body, headers, timeout, session.deadline)
+
+    session = CaptureSession(send=send, deadline=time.monotonic() + deadline)
+    return run_capture(session, url)
+
+
+def run_capture(session: CaptureSession, url: str) -> LiveManifest:
+    """Run the handshake and paginated ``tools/list`` over any sender. Never raises.
+
+    Shared by the loopback HTTP path and the sandboxed stdio path
+    (:mod:`mcpscan.discovery.stdio_sandbox`), so both apply identical bounds:
+    tool and page caps, malformed-entry accounting, and a partial capture
+    marked ``truncated`` rather than silently trusted.
+    """
     tools: list[LiveTool] = []
     malformed = 0
     truncated = False
