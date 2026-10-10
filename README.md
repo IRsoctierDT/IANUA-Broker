@@ -108,6 +108,7 @@ mcpscan scan --inspect-telemetry      # opt-in: agent-host logging health
 mcpscan scan --inspect-broker         # opt-in: is privileged tool access fronted by a trust broker?
 mcpscan scan --inspect-live-tools --live-tools-target 127.0.0.1:8765/mcp  # opt-in: live tool manifest
 mcpscan scan --inspect-live-tools --spawn-stdio notes=IMAGE@sha256:…  # opt-in: stdio server in a sandbox
+mcpscan scan --tools-json vendor=tools.json  # offline: check a saved tools/list (no connection)
 mcpscan baseline --out base.json --import-mcp-lock .mcp-lock.json      # also pin an mcpseal lockfile
 mcpscan scan --show-secrets           # reveal masked (first-2/last-2) values
 mcpscan scan --fix                    # apply safe tool-scope fixes (backs up first)
@@ -119,6 +120,7 @@ mcpscan graph                         # cross-server AI attack-path graph (see b
 mcpscan graph --graph-format dot      # Graphviz DOT export for visualization
 mcpscan baseline --out base.json      # snapshot current posture (digest-signed)
 mcpscan diff --baseline base.json --fail-on-regression   # drift gate for CI
+mcpscan diff --baseline base.json --sarif drift.sarif    # drift as code-scanning alerts (before/after)
 mcpscan diff --baseline base.json --max-age-days 30      # + warn if the baseline is stale
 mcpscan schedule --cadence daily      # generate an OS-native scheduled scan+diff
 mcpscan selftest                      # verify the scanner's own detections still fire
@@ -146,7 +148,7 @@ always matches `mcpscan --help`; CI fails if it drifts.
 | `--root DIR` | Project root to scan for .mcp.json/.env (repeatable; default: cwd). |
 | `--json PATH` | Write a JSON report. |
 | `--html PATH` | Write an HTML report. |
-| `--sarif PATH` | Write a SARIF 2.1.0 report for GitHub code scanning. |
+| `--sarif PATH` | Write a SARIF 2.1.0 report for GitHub code scanning. With 'diff': one alert per regression vs the baseline, with before/after detail. |
 | `--show-secrets` | Reveal masked (first-2/last-2) secret values. Off by default. |
 | `--absolute-paths` | Show full paths instead of relativizing to ~ (off by default). |
 | `--fail-on FAIL_ON` | Minimum severity that makes the command exit non-zero (default: high). |
@@ -159,6 +161,7 @@ always matches `mcpscan --help`; CI fails if it drifts.
 | `--inspect-live-tools` | Opt-in: speak MCP (initialize + tools/list) to loopback endpoints only and check the tool names, descriptions, schemas and annotations the server actually advertises. Targets: every --live-tools-target, plus listening sockets owned by a positively identified agent/MCP process. No credentials, no proxy, no redirects, no LAN/WAN. With baseline/diff the manifest digest is fingerprinted, so a changed tool is drift. |
 | `--import-mcp-lock PATH` | With 'baseline': also pin every approved tool from an mcpseal .mcp-lock.json (server NAME becomes stdio://NAME, matching --spawn-stdio NAME=...). Only digests are imported, never the plaintext descriptions the lockfile stores. Unknown lockfile versions are refused. |
 | `--spawn-stdio NAME=IMAGE@sha256:DIGEST` | Inspect a stdio-only MCP server with --inspect-live-tools by running its operator-supplied container image (pinned by digest; never pulled) in the ADR-18 sandbox: no network, read-only root, no host env or mounts, CPU/memory/process limits. RUNS THE SERVER'S CODE inside the container. Repeatable. Fails closed without podman/docker. |
+| `--tools-json [NAME=]PATH` | Check a saved MCP tools/list document offline (repeatable): a tools/list result, a full JSON-RPC response, or a bare tools array. Same checks and bounds as --inspect-live-tools, with no connection; findings point at the file. Reported as server tools-json://NAME (default NAME: the file stem). With baseline/diff each tool is pinned, so a changed file is drift. |
 | `--container-runtime CONTAINER_RUNTIME` | Container runtime for --spawn-stdio (default: auto = podman, then docker). |
 | `--live-tools-target HOST:PORT[/PATH]` | Loopback MCP endpoint for --inspect-live-tools (repeatable), e.g. 127.0.0.1:8765/mcp. Path defaults to /mcp. Non-loopback hosts are rejected. |
 | `--emit SINK` | Emit a redacted findings/drift summary to a sink (repeatable): 'ndjson' (append a JSON line to --emit-ndjson-path), 'webhook' (POST JSON to --emit-webhook-url), or 'syslog' (local syslog). Off by default; no secret value is ever sent — only an 8-hex fingerprint. |
@@ -415,6 +418,25 @@ and never falls back to running the server on your machine. CI proves the
 isolation on a real runtime: a probe server reports from inside the container
 that outbound network is blocked and a host canary secret did not leak.
 
+**Saved manifests, no server running** (`--tools-json`). Check a `tools/list`
+document you captured once or keep in a repository: a `tools/list` result
+(`{"tools": [...]}`), a full JSON-RPC response, or a bare tools array. It goes
+through the same validation, bounds and `LIVE-TOOL-*` checks as a live capture,
+opens no connection, and does not need `--inspect-live-tools`. The server is
+reported as `tools-json://NAME` (default `NAME`: the file stem) and findings
+point at the file, so code scanning annotates it. With `baseline`/`diff` every
+tool is pinned, so a vendor's changed manifest fails the drift gate in CI:
+
+```bash
+mcpscan baseline --out base.json --tools-json vendor=vendor-tools.json
+mcpscan diff --baseline base.json --tools-json vendor=vendor-tools.json \
+  --fail-on-regression --sarif drift.sarif
+```
+
+A missing path is a usage error (exit 2); a file that is unreadable, oversized
+(8 MiB) or not a recognized manifest is reported as `LIVE-TOOLS-UNAVAILABLE`,
+never skipped.
+
 ### Drift detection (`mcpscan baseline` / `mcpscan diff`)
 
 Turn the one-shot scan into continuous posture. `mcpscan baseline` writes a
@@ -440,6 +462,15 @@ fires). `--fail-on-regression` exits non-zero **only** on regressions, so
 then diff every change against it. The baseline's digest is re-verified on load,
 so an edited or corrupted baseline is refused rather than trusted. `--json`
 emits the full machine-readable drift; `--no-inventory` snapshots posture only.
+
+`diff --sarif drift.sarif` raises one code-scanning alert per **regression**
+(rule `DRIFT-<CAUSE>`, e.g. `DRIFT-TOOL-DESC-CHANGED`), anchored on the
+committed baseline file and naming the drifted fact as a logical location. The
+message shows each changed field as `before → after` (digests and hints only;
+a baseline never stores description text), and `properties.before`/`after`
+carry the full detail. Accepted drift appears as a suppressed alert; expired
+acceptances are live again. Upload it with its own category (e.g.
+`category: mcpscan-diff`) so it does not replace the `scan` alerts.
 
 ### Scheduled re-validation (`mcpscan schedule`)
 
@@ -671,8 +702,9 @@ MCP server actually tells the model (loopback HTTP, and stdio servers inside a
 digest-pinned, network-less container sandbox per ADR-18), with `LIVE-TOOL-*`
 poisoning and shadowing checks; `baseline`/`diff` pin every tool individually
 with named-human, digest-scoped acceptances; and `--import-mcp-lock` brings
-existing mcpseal pins across. See [docs/ROADMAP.md](docs/ROADMAP.md) for what is
-next.
+existing mcpseal pins across. **1.11:** `--tools-json` checks and pins saved
+manifests offline, and `diff --sarif` turns drift into code-scanning alerts with
+before/after detail. See [docs/ROADMAP.md](docs/ROADMAP.md) for what is next.
 
 ## License
 

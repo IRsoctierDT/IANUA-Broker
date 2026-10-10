@@ -99,7 +99,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--sarif",
         metavar="PATH",
         type=Path,
-        help="Write a SARIF 2.1.0 report for GitHub code scanning.",
+        help=(
+            "Write a SARIF 2.1.0 report for GitHub code scanning. With 'diff': one "
+            "alert per regression vs the baseline, with before/after detail."
+        ),
     )
     parser.add_argument(
         "--show-secrets",
@@ -214,6 +217,20 @@ def build_parser() -> argparse.ArgumentParser:
             "in the ADR-18 sandbox: no network, read-only root, no host env or "
             "mounts, CPU/memory/process limits. RUNS THE SERVER'S CODE inside the "
             "container. Repeatable. Fails closed without podman/docker."
+        ),
+    )
+    parser.add_argument(
+        "--tools-json",
+        action="append",
+        default=[],
+        type=_tools_json_target,
+        metavar="[NAME=]PATH",
+        help=(
+            "Check a saved MCP tools/list document offline (repeatable): a tools/list "
+            "result, a full JSON-RPC response, or a bare tools array. Same checks and "
+            "bounds as --inspect-live-tools, with no connection; findings point at "
+            "the file. Reported as server tools-json://NAME (default NAME: the file "
+            "stem). With baseline/diff each tool is pinned, so a changed file is drift."
         ),
     )
     parser.add_argument(
@@ -470,6 +487,30 @@ def _stdio_target(text: str) -> tuple[str, str]:
     return name, image
 
 
+def _tools_json_target(text: str) -> tuple[str, Path]:
+    """Parse ``[NAME=]PATH`` for --tools-json; the file must exist and be regular.
+
+    Without ``NAME=`` the server name is the file stem, which must itself be a
+    valid name (1-64 of ``A-Z a-z 0-9 . _ -``, alphanumeric first).
+    """
+    from .discovery.stdio_sandbox import valid_server_name
+
+    name, sep, rest = text.partition("=")
+    if sep and valid_server_name(name):
+        path = Path(rest)
+    else:
+        path = Path(text)
+        name = path.stem
+    if not path.is_file():
+        raise argparse.ArgumentTypeError(f"{path}: not an existing regular file")
+    if not valid_server_name(name):
+        raise argparse.ArgumentTypeError(
+            f"cannot use {name!r} as a server name; pass NAME=PATH "
+            "(NAME: 1-64 of A-Z a-z 0-9 . _ -)"
+        )
+    return name, path
+
+
 def _live_target(text: str) -> tuple[str, int, str]:
     """Parse ``HOST:PORT[/PATH]`` (IPv6 as ``[::1]:PORT``); loopback hosts only."""
     from .discovery.sockets import is_loopback
@@ -501,6 +542,14 @@ def main(argv: list[str] | None = None) -> int:
     if (args.live_tools_target or args.spawn_stdio) and not args.inspect_live_tools:
         # Fail closed: a target alone must never look like an inspection happened.
         parser.error("--live-tools-target/--spawn-stdio require --inspect-live-tools")
+
+    if args.tools_json and args.command not in {"scan", "baseline", "diff"}:
+        # Fail closed: an accepted-but-ignored manifest would look inspected.
+        parser.error("--tools-json is used only with scan, baseline and diff")
+    names = [name for name, _path in args.tools_json]
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    if duplicates:
+        parser.error(f"--tools-json server names must be unique: {', '.join(duplicates)}")
 
     if args.command == "lan":
         return _run_lan(args)
@@ -631,6 +680,7 @@ def _posture_snapshot(args: argparse.Namespace) -> Snapshot:
         live_tools_targets=tuple(args.live_tools_target),
         stdio_targets=tuple(args.spawn_stdio),
         container_runtime=args.container_runtime,
+        tools_json_targets=tuple(args.tools_json),
     )
     inventory = None
     if not args.no_inventory:
@@ -816,6 +866,18 @@ def _run_diff(args: argparse.Namespace) -> int:
     if args.json is not None:
         write_report(args.json, render_json_drift(report, staleness=staleness))
         print(f"wrote drift JSON: {args.json}", file=sys.stderr)
+    if args.sarif is not None:
+        from .drift.sarif import render_sarif_drift
+        from .report import RenderOptions
+
+        sarif = render_sarif_drift(
+            report,
+            baseline_path=str(args.baseline.resolve()),
+            opts=RenderOptions(absolute_paths=args.absolute_paths, home=str(Path.home())),
+            base=str(Path.cwd()),
+        )
+        write_report(args.sarif, sarif)
+        print(f"wrote drift SARIF: {args.sarif}", file=sys.stderr)
 
     code = 0
     if args.fail_on_regression and report.regressions:
@@ -1257,6 +1319,7 @@ def _run_scan(args: argparse.Namespace) -> int:
         live_tools_targets=tuple(args.live_tools_target),
         stdio_targets=tuple(args.spawn_stdio),
         container_runtime=args.container_runtime,
+        tools_json_targets=tuple(args.tools_json),
         now_epoch=now_epoch,
     )
     report = _apply_acceptance_ledger(report, args.root)
