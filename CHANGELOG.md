@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.10.0...ianua-broker-v1.11.0) (2026-10-10)
+
+
+### Features
+
+* **live-tools:** check saved manifests offline and emit drift as SARIF ([#138](https://github.com/IRsoctierDT/IANUA-Broker/issues/138)) ([e2da5fe](https://github.com/IRsoctierDT/IANUA-Broker/commit/e2da5feb635b9e1d4940297a728c0ac27ad5813a))
+
+
+### Documentation
+
+* **pypi:** fix broken README links on PyPI and refresh package metadata ([#139](https://github.com/IRsoctierDT/IANUA-Broker/issues/139)) ([cf50036](https://github.com/IRsoctierDT/IANUA-Broker/commit/cf500362951f291c16fa99f3c1732ac7c8f068ea))
+
 ## [1.10.0](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.9.1...ianua-broker-v1.10.0) (2026-10-09)
 
 

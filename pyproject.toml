@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ianua-broker"
-version = "1.10.0"
+version = "1.11.0"
 description = "Local-first, offline-by-default security posture scanner for MCP servers and local AI-agent setups: configs, live tool manifests, tool poisoning, signed drift and SARIF."
 readme = "README.md"
 requires-python = ">=3.11"
