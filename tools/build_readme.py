@@ -63,7 +63,8 @@ def render_release() -> str:
     # release-please-config.json), so a release never leaves the README stale.
     return (
         f"**Current release: v{version}** "
-        "([changelog](CHANGELOG.md), [PyPI](https://pypi.org/project/ianua-broker/))."
+        "([changelog](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/CHANGELOG.md), "
+        "[PyPI](https://pypi.org/project/ianua-broker/))."
         " <!-- x-release-please-version -->\n"
     )
 

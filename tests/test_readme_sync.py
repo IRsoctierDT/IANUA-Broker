@@ -100,3 +100,16 @@ def test_release_line_is_bumped_by_release_please() -> None:
     config = json.loads((tool.ROOT / "release-please-config.json").read_text(encoding="utf-8"))
     extra = config["packages"]["."].get("extra-files", [])
     assert {"type": "generic", "path": "README.md"} in extra
+
+
+def test_readme_links_resolve_on_pypi() -> None:
+    """README.md is also the PyPI long description, and PyPI cannot resolve
+    repo-relative links (they 404 under pypi.org/project/...). Every link must be
+    absolute (or an in-page #anchor)."""
+    import re
+
+    readme = _load().README.read_text(encoding="utf-8")
+    relative = re.findall(r"\]\(((?!https?://|#|mailto:)[^)\s]+)\)", readme)
+    relative += re.findall(r"^\[[^\]]+\]:\s*((?!https?://|#)\S+)", readme, re.MULTILINE)
+    relative += re.findall(r"(?:href|src)=\"((?!https?://|#)[^\"]+)\"", readme)
+    assert relative == [], f"relative links break on PyPI: {relative}"

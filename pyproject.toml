@@ -5,13 +5,25 @@ build-backend = "hatchling.build"
 [project]
 name = "ianua-broker"
 version = "1.10.0"
-description = "Local-first, offline-by-default security posture scanner for MCP / local-agent setups."
+description = "Local-first, offline-by-default security posture scanner for MCP servers and local AI-agent setups: configs, live tool manifests, tool poisoning, signed drift and SARIF."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Ivan Rozenblad", email = "irozenblad@icloud.com" }]
-keywords = ["mcp", "security", "scanner", "posture", "agent", "llm"]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "security",
+    "scanner",
+    "posture",
+    "agent",
+    "llm",
+    "tool-poisoning",
+    "prompt-injection",
+    "drift-detection",
+    "sarif",
+]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
@@ -56,7 +68,11 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/IRsoctierDT/IANUA-Broker"
+Documentation = "https://github.com/IRsoctierDT/IANUA-Broker#readme"
 Repository = "https://github.com/IRsoctierDT/IANUA-Broker"
+Changelog = "https://github.com/IRsoctierDT/IANUA-Broker/blob/main/CHANGELOG.md"
+Releases = "https://github.com/IRsoctierDT/IANUA-Broker/releases"
+Security = "https://github.com/IRsoctierDT/IANUA-Broker/blob/main/SECURITY.md"
 Issues = "https://github.com/IRsoctierDT/IANUA-Broker/issues"
 
 [project.scripts]
