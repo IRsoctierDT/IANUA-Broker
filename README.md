@@ -702,11 +702,9 @@ MCP server actually tells the model (loopback HTTP, and stdio servers inside a
 digest-pinned, network-less container sandbox per ADR-18), with `LIVE-TOOL-*`
 poisoning and shadowing checks; `baseline`/`diff` pin every tool individually
 with named-human, digest-scoped acceptances; and `--import-mcp-lock` brings
-existing mcpseal pins across. See [docs/ROADMAP.md](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/docs/ROADMAP.md) for what is
-next.
 existing mcpseal pins across. **1.11:** `--tools-json` checks and pins saved
 manifests offline, and `diff --sarif` turns drift into code-scanning alerts with
-before/after detail. See [docs/ROADMAP.md](docs/ROADMAP.md) for what is next.
+before/after detail. See [docs/ROADMAP.md](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/docs/ROADMAP.md) for what is next.
 
 ## License
 
