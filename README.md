@@ -6,7 +6,7 @@
 
 **Status:** Stable (`v1.x`) — safe to run (read-only, offline by default), with
 a stable CLI surface, JSON schema, and check ids covered by semver. CLI
-command: `mcpscan`. License: Apache-2.0. Build spawn map: [`docs/ROADMAP.md`](docs/ROADMAP.md).
+command: `mcpscan`. License: Apache-2.0. Build spawn map: [`docs/ROADMAP.md`](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/docs/ROADMAP.md).
 
 ## What it does
 
@@ -44,7 +44,7 @@ command: `mcpscan`. License: Apache-2.0. Build spawn map: [`docs/ROADMAP.md`](do
   descriptions, shadowed tool names, and rug pulls via a fingerprinted
   manifest), `--inspect-broker`
   (is privileged tool access fronted by an [Agent Trust
-  Broker](docs/proposals/ATB_POSTURE_CHECK.md)?), `mcpscan selftest`
+  Broker](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/docs/proposals/ATB_POSTURE_CHECK.md)?), `mcpscan selftest`
   (catches a degraded scanner), and a signed detection **data-pack** refresh
   channel (`mcpscan update-datapack`).
 
@@ -340,7 +340,7 @@ every tool's name, description, input/output schema strings and annotations:
 |---|---|---|
 | `LIVE-TOOL-HIDDEN-UNICODE` | High | Zero-width / bidi characters hiding instructions from a reviewer |
 | `LIVE-TOOL-INJECTION-TEXT` | High | Prompt-injection phrases and their families ("ignore the previous instructions", `<IMPORTANT>` blocks, claims to outrank the user, secrecy from the user) |
-| `LIVE-TOOL-CROSS-TOOL-DIRECTIVE` | Medium | Directives steering *other* tools — forced "call X first" preconditions, dictated arguments, credential paths, coercion ([benchmark](docs/BENCHMARKS.md)) |
+| `LIVE-TOOL-CROSS-TOOL-DIRECTIVE` | Medium | Directives steering *other* tools — forced "call X first" preconditions, dictated arguments, credential paths, coercion ([benchmark](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/docs/BENCHMARKS.md)) |
 | `LIVE-TOOL-OVERSIZED-DESCRIPTION` | Medium | Descriptions over 64 KiB — unreadable in an approval dialog |
 | `LIVE-TOOL-DUPLICATE-NAME` | Medium | One server advertising two definitions under one name |
 | `LIVE-TOOL-SHADOW` | Medium | The same tool name exposed by two servers (cross-server shadowing) |
@@ -524,7 +524,7 @@ $ mcpscan atlas
 deliberately conservative — a citation appears only where the technique/control
 match is direct, NIST AI RMF stays at function level and CIS at control level —
 and it lives in one auditable data file
-([`src/mcpscan/atlas/model.py`](src/mcpscan/atlas/model.py)), with CI gating
+([`src/mcpscan/atlas/model.py`](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/src/mcpscan/atlas/model.py)), with CI gating
 that every check id the scanner can emit has a mapping and no mapping outlives
 its check. Exit-code semantics match `scan` (`--fail-on`).
 
@@ -602,7 +602,7 @@ steps:
     with: { sarif_file: results.sarif }
 ```
 
-This repo dogfoods it in [`.github/workflows/mcpscan.yml`](.github/workflows/mcpscan.yml).
+This repo dogfoods it in [`.github/workflows/mcpscan.yml`](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/.github/workflows/mcpscan.yml).
 
 ### Authorized network assessment (`mcpscan lan`)
 
@@ -639,27 +639,27 @@ file), `--sarif` emits it as a SARIF **logical location**
 (`kind: resource`, `fullyQualifiedName: lan://host:port`) — standards-valid for
 generic SARIF and SIEM/audit consumers, **not** GitHub code scanning (which
 needs a checkout file to raise an alert). No synthetic file path is ever
-invented; see [ADR-16](docs/DECISIONS.md). Step-by-step:
-[`docs/LAN_OPERATOR_GUIDE.md`](docs/LAN_OPERATOR_GUIDE.md); full design and threat
-model: [`docs/proposals/LAN_SCANNING.md`](docs/proposals/LAN_SCANNING.md).
+invented; see [ADR-16](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/docs/DECISIONS.md). Step-by-step:
+[`docs/LAN_OPERATOR_GUIDE.md`](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/docs/LAN_OPERATOR_GUIDE.md); full design and threat
+model: [`docs/proposals/LAN_SCANNING.md`](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/docs/proposals/LAN_SCANNING.md).
 
 ## Documentation
 
 | Doc | What it is |
 |---|---|
-| [docs/SPEC.md](docs/SPEC.md) | Full product & technical specification (testable requirements, scoring rubric, threat model, DoD). |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | Architecture decision records (ADRs). |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component model, dependency direction, trust boundaries. |
-| [docs/BACKLOG.md](docs/BACKLOG.md) | Sprint-tagged tickets + requirement→ticket traceability. |
-| [docs/SECURITY_SIGNOFF.md](docs/SECURITY_SIGNOFF.md) | Threat-model verification matrix (security sign-off). |
-| [docs/ADVERSARIAL_TESTS.md](docs/ADVERSARIAL_TESTS.md) | Adversarial test battery — the tool under attack, and what it found. |
-| [docs/agents/](docs/agents/README.md) | MCP Sentinel agent suite — governed agent roles, registry, and operating model. |
-| [SECURITY.md](SECURITY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) | Reporting policy · contributor guide. |
+| [docs/SPEC.md](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/docs/SPEC.md) | Full product & technical specification (testable requirements, scoring rubric, threat model, DoD). |
+| [docs/DECISIONS.md](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/docs/DECISIONS.md) | Architecture decision records (ADRs). |
+| [docs/ARCHITECTURE.md](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/docs/ARCHITECTURE.md) | Component model, dependency direction, trust boundaries. |
+| [docs/BACKLOG.md](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/docs/BACKLOG.md) | Sprint-tagged tickets + requirement→ticket traceability. |
+| [docs/SECURITY_SIGNOFF.md](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/docs/SECURITY_SIGNOFF.md) | Threat-model verification matrix (security sign-off). |
+| [docs/ADVERSARIAL_TESTS.md](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/docs/ADVERSARIAL_TESTS.md) | Adversarial test battery — the tool under attack, and what it found. |
+| [docs/agents/](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/docs/agents/README.md) | MCP Sentinel agent suite — governed agent roles, registry, and operating model. |
+| [SECURITY.md](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/SECURITY.md) · [CONTRIBUTING.md](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/CONTRIBUTING.md) | Reporting policy · contributor guide. |
 
 ## Status & roadmap
 
 <!-- BEGIN GENERATED: release -->
-**Current release: v1.10.0** ([changelog](CHANGELOG.md), [PyPI](https://pypi.org/project/ianua-broker/)). <!-- x-release-please-version -->
+**Current release: v1.10.0** ([changelog](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/CHANGELOG.md), [PyPI](https://pypi.org/project/ianua-broker/)). <!-- x-release-please-version -->
 <!-- END GENERATED: release -->
 
 **Released on [PyPI](https://pypi.org/project/ianua-broker/)** as `ianua-broker`
@@ -669,13 +669,13 @@ macOS/Linux/Windows × Python 3.11–3.13), with SBOM + checksums on every relea
 It ships **seven** host adapters (Claude, Cursor, Windsurf, Cline, VS Code, Zed,
 Continue), SARIF 2.1.0 + a GitHub code-scanning workflow, opt-in `--fix`,
 `mcpscan lan` (authorized, signed-manifest network assessment), and a
-[dogfood harness](tools/dogfood/README.md) that gates every check against a
+[dogfood harness](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/tools/dogfood/README.md) that gates every check against a
 clean+messy corpus across all hosts (0 false positives / 0 false negatives, run
 in CI).
 
 Because a scanner's own inputs are attacker-authored — a `.mcp.json` inside a
 repository you just cloned is written by whoever wrote the repository — an
-[adversarial test battery](docs/ADVERSARIAL_TESTS.md) runs the tool as the
+[adversarial test battery](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/docs/ADVERSARIAL_TESTS.md) runs the tool as the
 *target*: hostile configs, planted FIFOs and symlink loops, terminal-escape and
 markup injection, evasion attempts, and resource exhaustion, all asserted
 against four invariants (no crash, no silence, no forged report, no leak or
@@ -685,7 +685,7 @@ The CLI surface, JSON report schema, and check ids are covered by semver:
 breaking changes to any of them mean a major version bump.
 
 Since 1.0, three hardening waves have landed on top of the platform tiers in
-[docs/proposals/VISION.md](docs/proposals/VISION.md) (`inventory`, `atlas`,
+[docs/proposals/VISION.md](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/docs/proposals/VISION.md) (`inventory`, `atlas`,
 `trust`, and `baseline`/`diff` drift): **continuous-validation** foundations
 (validation-age staleness, a named-human risk-acceptance ledger, drift-cause
 tags, reused-credential detection); **detection reach & quiet-read surfaces**
@@ -704,8 +704,8 @@ poisoning and shadowing checks; `baseline`/`diff` pin every tool individually
 with named-human, digest-scoped acceptances; and `--import-mcp-lock` brings
 existing mcpseal pins across. **1.11:** `--tools-json` checks and pins saved
 manifests offline, and `diff --sarif` turns drift into code-scanning alerts with
-before/after detail. See [docs/ROADMAP.md](docs/ROADMAP.md) for what is next.
+before/after detail. See [docs/ROADMAP.md](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/docs/ROADMAP.md) for what is next.
 
 ## License
 
-[Apache-2.0](LICENSE).
+[Apache-2.0](https://github.com/IRsoctierDT/IANUA-Broker/blob/main/LICENSE).
