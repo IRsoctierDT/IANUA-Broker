@@ -14,6 +14,14 @@
         {
           "type": "generic",
           "path": "README.md"
+        },
+        {
+          "type": "generic",
+          "path": "docs/STATUS.yaml"
+        },
+        {
+          "type": "generic",
+          "path": "docs/STATUS.md"
         }
       ]
     }
