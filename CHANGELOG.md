@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.4](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.11.3...ianua-broker-v1.11.4) (2026-10-23)
+
+
+### Documentation
+
+* **status:** record Sprint 6 — public release posture ([#154](https://github.com/IRsoctierDT/IANUA-Broker/issues/154)) ([3466951](https://github.com/IRsoctierDT/IANUA-Broker/commit/34669510337cafaf585a3d1d490014e349bfd133))
+
 ## [1.11.3](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.11.2...ianua-broker-v1.11.3) (2026-10-23)
 
 
