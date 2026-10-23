@@ -23,7 +23,7 @@ meta:
   updated: "2026-10-23"
   # Bumped by release-please (extra-files); the drift guard in
   # tests/test_status_sync.py asserts it matches pyproject.toml.
-  release: "1.11.1" # x-release-please-version
+  release: "1.11.2" # x-release-please-version
   source_of_truth: docs/STATUS.yaml
   view: docs/STATUS.md
   test_coverage: "95.96% combined statement+branch (gate: fail_under=90 in pyproject.toml)"

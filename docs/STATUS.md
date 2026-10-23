@@ -5,7 +5,7 @@ the two in sync when a ticket changes state. Tickets and acceptance criteria are
 defined in [`BACKLOG.md`](./BACKLOG.md); requirements in [`SPEC.md`](./SPEC.md).
 
 - **Updated:** 2026-10-23 (Sprint 5 — live tool surface, through v1.11.0)
-- **Released:** 1.11.1 (`ianua-broker` on PyPI) <!-- x-release-please-version -->
+- **Released:** 1.11.2 (`ianua-broker` on PyPI) <!-- x-release-please-version -->
 - **Test coverage:** 95.96% combined statement + branch coverage — `branch =
   true`, so this is the combined measure, not line coverage alone (gate:
   `fail_under = 90` in `pyproject.toml`)
