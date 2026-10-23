@@ -627,7 +627,7 @@ expiry:
 authorization_id = "ENG-2026-0710"
 operator         = "you@example.com"
 expires_at       = "2026-07-10T23:59:59Z"
-targets          = ["192.168.10.20/32"]   # exact hosts / /32 (a human may use a capped CIDR)
+targets          = ["198.51.100.20/32"]   # exact hosts / /32 (a human may use a capped CIDR)
 ports            = [3000, 8000]
 ```
 
