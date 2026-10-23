@@ -61,6 +61,34 @@ jobs:
       - name: SCA (pip-audit)
         run: pip-audit
 
+  secrets:
+    name: secrets (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # A secret is a leak wherever in history it landed, not only at the
+          # tip, so the whole history has to be present to scan it.
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+      - name: Install gitleaks (pinned)
+        # Pinned for reproducibility; `go install` verifies module checksums
+        # against the Go checksum database, so no separate integrity step.
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
+      - name: Scan full history
+        # --redact matters on a public repository: without it a genuine leak
+        # would be echoed verbatim into world-readable CI logs, widening the
+        # exposure the job exists to catch. Fixtures are allowlisted by value
+        # in .gitleaks.toml; a non-allowlisted secret fails the job.
+        run: |
+          gitleaks git . \
+            --log-opts="--all --full-history" \
+            --config .gitleaks.toml \
+            --redact \
+            --no-banner
+
   stdio-sandbox:
     # ADR-18: prove the stdio sandbox on a real container runtime — the probe
     # server reports from inside the container that outbound network is

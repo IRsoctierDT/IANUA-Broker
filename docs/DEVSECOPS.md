@@ -182,6 +182,7 @@ flowchart TD
         S1[CodeQL] --- S2[dependency-review]
         S2 --- S3[pip-audit SCA]
         S3 --- S4[secret scanning]
+        S4 --- S5["gitleaks (full history)"]
     end
     subgraph REL["Release — on tag / GitHub Release"]
         R1[verify tag == version] --> R2[build sdist+wheel]
