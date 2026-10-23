@@ -302,3 +302,81 @@ sprints:
           Released in 1.11.0 (#138). Saved manifests are checked without
           contacting the server, --fail-on-stale gates on manifest age, and
           drift is emitted as SARIF for code scanning.
+
+  - id: 6
+    name: "Public release posture: scanning, dogfood, docs site"
+    status: in_progress
+    tickets:
+      - id: T-601
+        title: Public repository with code scanning enabled
+        owner: SEC/REL
+        status: partial
+        evidence: [.github/workflows/codeql.yml, .github/workflows/mcpscan.yml]
+        note: >-
+          The repo-verifiable half is the workflows: codeql.yml uploads results
+          on push and pull_request, and mcpscan.yml gates its SARIF job on
+          github.event.repository.visibility == 'public'. Whether the
+          repository is in fact public with code scanning enabled is a GitHub
+          setting this repo cannot inspect; it was confirmed externally on
+          2026-10-23 by CodeQL succeeding after three consecutive
+          configuration-error failures and by the dogfood job no longer
+          skipping.
+      - id: T-602
+        title: Pre-merge CodeQL on pull requests
+        owner: SEC
+        status: done
+        evidence: [.github/workflows/codeql.yml]
+        note: >-
+          Released via #146. #145 had removed the pull_request trigger while
+          code scanning was unavailable on a private repo, which left CodeQL
+          reporting only after a merge; the trigger is restored so a finding
+          blocks the pull request that introduces it.
+      - id: T-603
+        title: "MCPscan dogfood in CI: self-scan + SARIF upload"
+        owner: SEC/QA
+        status: done
+        evidence: [.github/workflows/mcpscan.yml, tests/test_self_scan.py]
+        note: >-
+          The CI counterpart to T-403's in-suite self-scan. First live run on
+          2026-10-23 reported overall posture A (credential, exposure, pinning
+          and tool_scope all A) with two INFO findings, both the hosted
+          runner's own sshd rather than anything in this repo. The scan step
+          is continue-on-error by design so SARIF and triage evidence always
+          upload, which means a green check does not by itself mean zero
+          findings - read the job summary.
+      - id: T-604
+        title: "docs/ published to GitHub Pages behind a human gate"
+        owner: REL
+        status: done
+        evidence: [.github/workflows/pages.yml, docs/index.html, docs/.nojekyll]
+        note: >-
+          Publishes only after a green CI run for a push to main, and then
+          waits on the github-pages environment's required-reviewer rule, so
+          no deploy reaches the site unapproved. First publish of the current
+          default branch on 2026-10-23.
+      - id: T-605
+        title: Tracker anchored to the released version
+        owner: QA/REL
+        status: done
+        evidence: [tests/test_status_sync.py, release-please-config.json, docs/STATUS.yaml]
+        note: >-
+          Cross-file parity could not catch both status docs going stale
+          together, which is how this tracker sat at v1.6.0 through five
+          releases. The guard now asserts meta.release equals pyproject.toml,
+          and release-please carries that pointer as an extra-file, so a
+          release PR bumps pyproject.toml, README.md and both tracker files in
+          one commit. Confirmed by release PRs #150 and #152.
+      - id: T-606
+        title: Lab topology on RFC 5737 documentation addresses
+        owner: SEC/DOC
+        status: done
+        evidence:
+          [docs/dogfood/NETWORK_LAB.md, docs/LAN_OPERATOR_GUIDE.md, lab/synthetic/docker-compose.yml]
+        note: >-
+          The network-lab runbook had documented a concrete pfSense/Suricata
+          segment on 192.168.10.0/24; on a public repo that reads as a map of
+          it. Moved to 198.51.100.0/24 (TEST-NET-2). The substitution is
+          behaviour-preserving: TEST-NET is is_private, so
+          classify_reachability() returns private_lan/HIGH exactly as for an
+          RFC 1918 address and lan/scope.py accepts the target, leaving every
+          expected finding in the runbook correct verbatim.

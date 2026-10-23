@@ -4,7 +4,8 @@ Human-readable view of [`STATUS.yaml`](./STATUS.yaml) (the source of truth). Kee
 the two in sync when a ticket changes state. Tickets and acceptance criteria are
 defined in [`BACKLOG.md`](./BACKLOG.md); requirements in [`SPEC.md`](./SPEC.md).
 
-- **Updated:** 2026-10-23 (Sprint 5 — live tool surface, through v1.11.0)
+- **Updated:** 2026-10-23 (Sprint 6 — public release posture; product
+  surface through v1.11.0)
 - **Released:** 1.11.3 (`ianua-broker` on PyPI) <!-- x-release-please-version -->
 - **Test coverage:** 95.96% combined statement + branch coverage — `branch =
   true`, so this is the combined measure, not line coverage alone (gate:
@@ -29,6 +30,7 @@ defined in [`BACKLOG.md`](./BACKLOG.md); requirements in [`SPEC.md`](./SPEC.md).
 | 3 | Reporting & remediation | ✅ done |
 | 4 | Online enrichment, integration & hardening | 🔄 in progress (T-402 🟡, T-407 ✅) |
 | 5 | Live tool surface: manifests, poisoning, drift | ✅ done |
+| 6 | Public release posture: scanning, dogfood, docs site | 🔄 in progress (T-601 🟡) |
 
 ## Sprint 1 — Foundations & data model
 
@@ -120,3 +122,38 @@ it landed in is named so a row can be traced to `CHANGELOG.md`.
 > **T-507 note:** the offline half is the point — a saved manifest is checked
 > without contacting the server, so drift detection does not depend on the
 > server still being reachable or still being honest.
+
+## Sprint 6 — Public release posture: scanning, dogfood, docs site
+
+Going public is what made the rest of this sprint possible: code scanning,
+SARIF upload and Pages are all free on a public repository and were each
+blocked while it was private.
+
+| Ticket | Title | Owner | Status | Evidence |
+|---|---|---|---|---|
+| T-601 | Public repository with code scanning enabled | SEC/REL | 🟡 | `codeql.yml`, `mcpscan.yml` (workflows committed; the GitHub setting itself is not repo-verifiable) |
+| T-602 | Pre-merge CodeQL on pull requests | SEC | ✅ | `codeql.yml` (`pull_request` trigger restored in #146) |
+| T-603 | MCPscan dogfood in CI: self-scan + SARIF upload | SEC/QA | ✅ | `mcpscan.yml`, `tests/test_self_scan.py` |
+| T-604 | `docs/` published to GitHub Pages behind a human gate | REL | ✅ | `pages.yml`, `docs/index.html`, `docs/.nojekyll` |
+| T-605 | Tracker anchored to the released version | QA/REL | ✅ | `tests/test_status_sync.py`, `release-please-config.json` |
+| T-606 | Lab topology on RFC 5737 documentation addresses | SEC/DOC | ✅ | `docs/dogfood/NETWORK_LAB.md`, `docs/LAN_OPERATOR_GUIDE.md`, `lab/synthetic/docker-compose.yml` |
+
+> **T-601 note:** the workflows are committed and testable; whether the
+> repository is public with code scanning enabled is a GitHub setting this repo
+> cannot inspect, so the row stays 🟡. It was confirmed externally on
+> 2026-10-23 by CodeQL succeeding after three consecutive configuration-error
+> failures and by the dogfood job no longer skipping its visibility gate.
+> **T-603 note:** the CI counterpart to T-403's in-suite self-scan. First live
+> run reported overall posture **A** with two INFO findings, both the hosted
+> runner's own sshd rather than anything in this repo. The scan step is
+> `continue-on-error` by design so SARIF and triage evidence always upload —
+> **a green check does not by itself mean zero findings**; read the job summary.
+> **T-605 note:** cross-file parity alone could not catch both status docs going
+> stale together, which is how this tracker sat at v1.6.0 through five releases.
+> `meta.release` is now asserted against `pyproject.toml` and carried by
+> release-please as an extra-file, so a release PR bumps all four files in one
+> commit.
+> **T-606 note:** behaviour-preserving by design — TEST-NET is `is_private`, so
+> `classify_reachability()` returns `private_lan`/HIGH exactly as for an RFC
+> 1918 address and `lan/scope.py` accepts the target, leaving every expected
+> finding in the runbook correct verbatim.
