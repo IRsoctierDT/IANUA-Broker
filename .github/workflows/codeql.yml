@@ -12,9 +12,11 @@
 name: "CodeQL Advanced"
 
 on:
+  # Code scanning is a repository-level capability that can be disabled until the
+  # first manual enablement in GitHub. Allowing it to run on every PR makes the
+  # status checks fail before that feature is enabled, so keep the workflow to the
+  # main-branch and scheduled runs that actually publish results.
   push:
-    branches: [ "main" ]
-  pull_request:
     branches: [ "main" ]
   schedule:
     - cron: '24 12 * * 2'
