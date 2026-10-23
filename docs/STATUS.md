@@ -1,11 +1,14 @@
-# Delivery Status — AI Agentic MCPscan
+# Delivery Status — IANUA-Broker (mcpscan)
 
 Human-readable view of [`STATUS.yaml`](./STATUS.yaml) (the source of truth). Keep
 the two in sync when a ticket changes state. Tickets and acceptance criteria are
 defined in [`BACKLOG.md`](./BACKLOG.md); requirements in [`SPEC.md`](./SPEC.md).
 
-- **Updated:** 2026-09-10 (v1.6.0 adversarial-hardening slice)
-- **Test coverage:** 98% line (gate: `fail_under = 90` in `pyproject.toml`)
+- **Updated:** 2026-10-23 (Sprint 5 — live tool surface, through v1.11.0)
+- **Released:** 1.11.0 (`ianua-broker` on PyPI)
+- **Test coverage:** 95.96% combined statement + branch coverage — `branch =
+  true`, so this is the combined measure, not line coverage alone (gate:
+  `fail_under = 90` in `pyproject.toml`)
 
 **Status legend**
 
@@ -25,6 +28,7 @@ defined in [`BACKLOG.md`](./BACKLOG.md); requirements in [`SPEC.md`](./SPEC.md).
 | 2 | Core engine: discovery, audit, scoring | ✅ done |
 | 3 | Reporting & remediation | ✅ done |
 | 4 | Online enrichment, integration & hardening | 🔄 in progress (T-402 🟡, T-407 ✅) |
+| 5 | Live tool surface: manifests, poisoning, drift | ✅ done |
 
 ## Sprint 1 — Foundations & data model
 
@@ -92,3 +96,27 @@ defined in [`BACKLOG.md`](./BACKLOG.md); requirements in [`SPEC.md`](./SPEC.md).
 > **T-407 note:** `ianua-broker` is published to PyPI via release-please +
 > Trusted Publishing (OIDC, no stored token). The distribution was renamed from
 > `ai-agentic-mcpscan`; the import package and `mcpscan` CLI are unchanged.
+
+## Sprint 5 — Live tool surface: manifests, poisoning, drift
+
+The 1.6.0 → 1.11.0 wave. Each ticket is a shipped, released slice; the release
+it landed in is named so a row can be traced to `CHANGELOG.md`.
+
+| Ticket | Title | Owner | Status | Release | Evidence |
+|---|---|---|---|---|---|
+| T-501 | Live MCP tool manifest capture & check | BE/SEC | ✅ | 1.6.0 (#123) | `discovery/live_tools.py`, `checks/live_tools.py`, `tests/test_live_tools.py` |
+| T-502 | Per-tool pinning in baseline/diff | BE | ✅ | 1.7.0 (#126) | `drift/baseline.py`, `drift/diff.py`, `tests/test_drift.py` |
+| T-503 | Stdio server inspection inside a container sandbox | SEC/BE | ✅ | 1.8.0 (#128) | `discovery/stdio_sandbox.py`, `tests/test_stdio_sandbox.py`, ADR-18 |
+| T-504 | mcpseal lockfile import as baseline pins | BE | ✅ | 1.9.0 (#130) | `drift/mcpseal_import.py`, `tests/test_mcpseal_import.py` |
+| T-505 | Generated README sections gated in CI | REL | ✅ | 1.9.1 (#132) | `tools/build_readme.py`, `tests/test_readme_sync.py` |
+| T-506 | Tool-poisoning directive detection | SEC | ✅ | 1.10.0 (#135) | `checks/tool_directives.py`, `tests/test_tool_directives.py`, `BENCHMARKS.md` |
+| T-507 | Offline manifest check + drift as SARIF | BE | ✅ | 1.11.0 (#138) | `drift/sarif.py`, `drift/staleness.py`, `tests/test_drift.py`, `tests/test_report_sarif.py` |
+
+> **T-503 note:** ADR-18 is the binding constraint — a stdio server is launched
+> only inside a container sandbox, never on the host. CI exercises the real path
+> in the `stdio sandbox (real container)` job, not a mock.
+> **T-506 note:** MCPTox held-out recall went 0% → 94%; the measurement and its
+> method are recorded in [`BENCHMARKS.md`](./BENCHMARKS.md).
+> **T-507 note:** the offline half is the point — a saved manifest is checked
+> without contacting the server, so drift detection does not depend on the
+> server still being reachable or still being honest.
