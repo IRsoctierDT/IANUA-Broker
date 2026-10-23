@@ -1,4 +1,4 @@
-# Sprint / ticket status tracker for AI Agentic MCPscan.
+# Sprint / ticket status tracker for IANUA-Broker (mcpscan).
 #
 # Source of truth for delivery status. docs/STATUS.md is a human-readable view
 # of this file — keep them in sync when a ticket changes state.
@@ -20,10 +20,11 @@
 meta:
   product: IANUA-Broker (mcpscan)
   cli: mcpscan
-  updated: "2026-09-10"
+  updated: "2026-10-23"
+  release: "1.11.0"
   source_of_truth: docs/STATUS.yaml
   view: docs/STATUS.md
-  test_coverage: "98% line (gate: fail_under=90 in pyproject.toml)"
+  test_coverage: "95.96% combined statement+branch (gate: fail_under=90 in pyproject.toml)"
   status_values: [done, done_doc, partial, pending, unverified]
 
 sprints:
@@ -227,3 +228,75 @@ sprints:
           ianua-broker is published to PyPI via release-please + Trusted
           Publishing (OIDC, no stored token). The distribution was renamed from
           ai-agentic-mcpscan; the import package and mcpscan CLI are unchanged.
+
+  - id: 5
+    name: "Live tool surface: manifests, poisoning, drift"
+    status: done
+    tickets:
+      - id: T-501
+        title: Live MCP tool manifest capture & check
+        owner: BE/SEC
+        status: done
+        evidence:
+          [src/mcpscan/discovery/live_tools.py, src/mcpscan/checks/live_tools.py, tests/test_live_tools.py]
+        note: >-
+          Released in 1.6.0 (#123). --inspect-live-tools / --live-tools-target
+          audit the tool manifest a server actually serves, not only what its
+          config declares.
+      - id: T-502
+        title: Per-tool pinning in baseline/diff
+        owner: BE
+        status: done
+        evidence: [src/mcpscan/drift/baseline.py, src/mcpscan/drift/diff.py, tests/test_drift.py]
+        note: >-
+          Released in 1.7.0 (#126). Each live tool is pinned individually, so a
+          single changed tool is attributable instead of the whole server
+          reading as drifted.
+      - id: T-503
+        title: Stdio server inspection inside a container sandbox
+        owner: SEC/BE
+        status: done
+        evidence:
+          [src/mcpscan/discovery/stdio_sandbox.py, tests/test_stdio_sandbox.py, docs/DECISIONS.md]
+        note: >-
+          Released in 1.8.0 (#128) under ADR-18: a stdio server is launched only
+          inside a container sandbox, never on the host. CI exercises the real
+          path in the "stdio sandbox (real container)" job.
+      - id: T-504
+        title: mcpseal lockfile import as baseline pins
+        owner: BE
+        status: done
+        evidence: [src/mcpscan/drift/mcpseal_import.py, tests/test_mcpseal_import.py]
+        note: >-
+          Released in 1.9.0 (#130). --import-mcp-lock seeds a drift baseline
+          from an existing mcpseal lockfile instead of requiring a fresh
+          capture.
+      - id: T-505
+        title: Generated README sections gated in CI
+        owner: REL
+        status: done
+        evidence: [tools/build_readme.py, tests/test_readme_sync.py]
+        note: >-
+          Released in 1.9.1 (#132). Factual README sections are generated from
+          the code, and a test fails if the committed README drifts from the
+          generator.
+      - id: T-506
+        title: Tool-poisoning directive detection
+        owner: SEC
+        status: done
+        evidence:
+          [src/mcpscan/checks/tool_directives.py, tests/test_tool_directives.py, docs/BENCHMARKS.md]
+        note: >-
+          Released in 1.10.0 (#135). Detects prompt-injection directives
+          embedded in tool descriptions; MCPTox held-out recall 0% -> 94%, as
+          recorded in docs/BENCHMARKS.md.
+      - id: T-507
+        title: Offline manifest check + drift as SARIF
+        owner: BE
+        status: done
+        evidence:
+          [src/mcpscan/drift/sarif.py, src/mcpscan/drift/staleness.py, tests/test_drift.py, tests/test_report_sarif.py]
+        note: >-
+          Released in 1.11.0 (#138). Saved manifests are checked without
+          contacting the server, --fail-on-stale gates on manifest age, and
+          drift is emitted as SARIF for code scanning.
