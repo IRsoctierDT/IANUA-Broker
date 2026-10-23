@@ -1,0 +1,49 @@
+# .gitleaks.toml — secret-scanning config for this repository.
+#
+# Runs in CI over the full history (.github/workflows/ci.yml, job "secrets").
+# A secret is a leak wherever in history it landed, so the CI job checks out
+# with fetch-depth: 0 and scans --all rather than only the tip.
+#
+# Allowlist policy: this file allowlists exact fixture VALUES and nothing else.
+# It deliberately does NOT allowlist paths. A `paths = ['''^tests/''']` entry
+# would be shorter, but allowlist conditions are OR-ed, so it would suppress
+# every finding anywhere under tests/ — including a real credential committed
+# into a test file, which is the most likely way one would actually land here.
+# That was verified, not assumed: with a path entry present, a synthetic
+# GitHub PAT dropped into tests/ went undetected; with value-matching only, it
+# is reported.
+#
+# Consequence to accept: adding a NEW fixture secret fails this job until its
+# value is listed below. That is the intended cost — it forces a human to
+# confirm the new value is synthetic rather than letting it through silently.
+#
+# Residual gap, accepted knowingly: because matching is by value and not by
+# location, copying one of these literals into src/ would not be reported.
+# They are non-functional placeholders, so the exposure is nil; the trade buys
+# the far more important property above.
+
+title = "IANUA-Broker gitleaks config"
+
+[extend]
+# Keep the whole upstream ruleset; this file only narrows it.
+useDefault = true
+
+[allowlist]
+description = """
+Synthetic credentials that exist to exercise the scanner's own checks. Each
+value is deliberately non-functional and was confirmed, across every commit in
+every ref, to appear only under tests/ or tools/dogfood/.
+"""
+
+regexes = [
+  # tools/dogfood/corpus.py declares this as `_SECRET = "..."  # trips
+  # CRED-PLAINTEXT`; the test suite reuses it as the expected-detection value.
+  '''S3cr3t-Pa55w0rd-abcdef123456''',
+  # Placeholder-alphabet API keys (sk-ABCDEF…0123 / …0123456789).
+  '''sk-ABCDEFGHIJKLMNOPQRSTUVWX0123(456789)?''',
+  # Reversed-alphabet GitHub PAT placeholder.
+  '''ghp_9876543210ZYXWVUTSRQPONMLKJIHGFEDCBA''',
+  # Not a credential at all: a marker string asserting that a tool-directive
+  # finding never echoes the tool description back into its output.
+  '''zz-unique-marker-9431''',
+]
