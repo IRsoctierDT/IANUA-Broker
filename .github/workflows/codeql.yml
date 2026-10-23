@@ -12,11 +12,19 @@
 name: "CodeQL Advanced"
 
 on:
-  # Code scanning is a repository-level capability that can be disabled until the
-  # first manual enablement in GitHub. Allowing it to run on every PR makes the
-  # status checks fail before that feature is enabled, so keep the workflow to the
-  # main-branch and scheduled runs that actually publish results.
+  # Code scanning is enabled for this repository, so PRs are scanned before
+  # merge: a finding should block the change that introduces it rather than
+  # land on main and be reported afterwards. The PR trigger was removed while
+  # code scanning was still disabled at the repository level (every PR run
+  # failed with "Code scanning is not enabled for this repository"); that
+  # condition no longer holds, so pre-merge scanning is restored.
+  #
+  # The push runs keep the default branch's alert set current (and are what
+  # dismiss alerts once a fix merges); the weekly schedule re-scans unchanged
+  # code against newly published queries.
   push:
+    branches: [ "main" ]
+  pull_request:
     branches: [ "main" ]
   schedule:
     - cron: '24 12 * * 2'
