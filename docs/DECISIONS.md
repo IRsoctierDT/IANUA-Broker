@@ -121,7 +121,7 @@ unless noted. These are inputs the Principal Architect validates before Sprint 1
 
 ### ADR-16 — LAN SARIF: logical locations, not synthetic files
 - **Options:** (a) keep `lan --sarif` failing closed; (b) synthesize a file path
-  like `lan/192.168.1.20/8000` so GitHub annotates it; (c) emit SARIF
+  like `lan/198.51.100.20/8000` so GitHub annotates it; (c) emit SARIF
   `logicalLocations` for the network endpoint.
 - **Decision:** (c). A LAN finding's location is a network endpoint
   (`host:port`), not a source file, so it is represented as a SARIF

@@ -59,7 +59,7 @@ avoided precisely to keep the tool stdlib-only):
 authorization_id = "ENG-2026-0710"
 operator         = "j.doe@example.com"
 expires_at       = "2026-07-10T23:59:59Z"   # probes after this instant are refused
-targets          = ["192.168.10.20/32"]     # exact hosts / /32 only
+targets          = ["198.51.100.20/32"]     # exact hosts / /32 only
 ports            = [3000, 8000, 8080]        # explicit; no default port sweep
 ```
 

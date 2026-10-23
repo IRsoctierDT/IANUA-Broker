@@ -13,10 +13,22 @@ must agree with the pfSense/Suricata ground truth on 100 % of the lab binds.**
 
 ## 0. Topology
 
+Addresses below are **documentation placeholders**, not a real network:
+`198.51.100.0/24` is TEST-NET-2 from
+[RFC 5737](https://www.rfc-editor.org/rfc/rfc5737), reserved for examples.
+Substitute your own lab's addresses when you run this.
+
+They are not arbitrary, though. Python's `ipaddress` reports TEST-NET as
+private (IANA marks it not globally reachable), so `classify_reachability()`
+returns `private_lan`/HIGH for these exactly as it does for an RFC 1918
+address, and `mcpscan lan`'s private-target gate accepts them. Every expected
+finding in this runbook therefore holds verbatim with these placeholders, and
+holds equally once you substitute your own RFC 1918 addresses.
+
 ```
         ┌────────────────────────┐         ┌──────────────────────┐
         │  lab host (target)     │         │  operator host       │
-        │  192.168.10.20         │         │  192.168.10.10       │
+        │  198.51.100.20         │         │  198.51.100.10       │
         │                        │         │                      │
         │  mcp-loopback :8801 ───┼─ lo     │  mcpscan lan ───────▶│ probes .20
         │  mcp-wildcard :8802 ───┼─ 0.0.0.0│                      │
@@ -38,8 +50,8 @@ the three bind classes, or real MCP servers configured the same way.
 ## 1. Stand up the target binds
 
 ```bash
-# On the lab host (192.168.10.20):
-HOST_LAN_IP=192.168.10.20 docker compose -f lab/synthetic/docker-compose.yml up -d
+# On the lab host (198.51.100.20):
+HOST_LAN_IP=198.51.100.20 docker compose -f lab/synthetic/docker-compose.yml up -d
 ss -tlnp | grep -E ':(8801|8802|8803)'   # confirm the three binds
 ```
 
@@ -49,15 +61,15 @@ Ground-truth expectation (what the network *should* show):
 |---|---|---|---|
 | `:8801` | `127.0.0.1` | **No** (loopback) | no exposure finding |
 | `:8802` | `0.0.0.0` | **Yes** (wildcard) | `EXPOSE-BIND` (CRITICAL) |
-| `:8803` | `192.168.10.20` | **Yes** (LAN iface) | `EXPOSE-BIND` (CRITICAL) |
+| `:8803` | `198.51.100.20` | **Yes** (LAN iface) | `EXPOSE-BIND` (CRITICAL) |
 
 ## 2. Confirm the ground truth with Suricata/pfSense
 
-From the **operator host** (192.168.10.10), touch each port and read the oracle,
+From the **operator host** (198.51.100.10), touch each port and read the oracle,
 don't trust the target's self-report:
 
 ```bash
-for p in 8801 8802 8803; do nc -z -w2 192.168.10.20 $p && echo "$p OPEN" || echo "$p closed"; done
+for p in 8801 8802 8803; do nc -z -w2 198.51.100.20 $p && echo "$p OPEN" || echo "$p closed"; done
 ```
 
 Expected from off-host: `8801 closed`, `8802 OPEN`, `8803 OPEN`. Cross-check the
@@ -94,7 +106,7 @@ authorizes exactly the lab target, sign it, and run from the operator host.
 authorization_id = "DOGFOOD-LAB-2026"
 operator         = "you@example.com"
 expires_at       = "2026-12-31T23:59:59Z"
-targets          = ["192.168.10.20/32"]   # exact /32 — the lab host only
+targets          = ["198.51.100.20/32"]   # exact /32 — the lab host only
 ports            = [8802, 8803]            # the two exposed binds
 ```
 
@@ -119,9 +131,9 @@ mcpscan lan --manifest auth.toml --signature auth.toml.sig \
 Expected:
 
 - **Terminal / `lan.json`:** a `LAN-EXPOSED` (HIGH) finding for
-  `192.168.10.20:8802` and `192.168.10.20:8803`.
+  `198.51.100.20:8802` and `198.51.100.20:8803`.
 - **`lan.sarif`:** each finding as a SARIF **logical location** —
-  `kind: resource`, `fullyQualifiedName: lan://192.168.10.20:8802` (ADR-16),
+  `kind: resource`, `fullyQualifiedName: lan://198.51.100.20:8802` (ADR-16),
   with **no** `physicalLocation` and no synthetic filename. Validate with any
   SARIF tool; do **not** expect GitHub code scanning to annotate it (it needs a
   file — that's by design).
@@ -137,14 +149,14 @@ Run each; every one must **refuse and send no packet**:
 sed 's/2026-12-31/2020-01-01/' auth.toml > expired.toml   # re-sign, then run -> refused
 
 # 2. Public target without an enterprise policy -> refused at the scope gate.
-sed 's#192.168.10.20/32#8.8.8.8/32#' auth.toml > public.toml   # re-sign, run -> refused
+sed 's#198.51.100.20/32#8.8.8.8/32#' auth.toml > public.toml   # re-sign, run -> refused
 
 # 3. Wrong/absent signature -> refused at the signature gate (no probe).
 mcpscan lan --manifest auth.toml --signature /dev/null \
             --allowed-signers allowed_signers --invoker human    # -> refused
 
 # 4. --invoker agent + a CIDR range -> refused (agent gets exact-hosts-only).
-sed 's#192.168.10.20/32#192.168.10.0/30#' auth.toml > range.toml  # re-sign
+sed 's#198.51.100.20/32#198.51.100.0/30#' auth.toml > range.toml  # re-sign
 mcpscan lan --manifest range.toml … --invoker agent               # -> refused
 ```
 

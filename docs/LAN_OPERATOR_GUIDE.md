@@ -32,12 +32,12 @@ and expiry:
 authorization_id = "ENG-2026-0710"      # your ticket / engagement id
 operator         = "you@example.com"    # must match the signing identity
 expires_at       = "2026-07-10T23:59:59Z"  # after this, runs are refused
-targets          = ["192.168.10.20/32"] # exact hosts / /32 (a human may use a capped CIDR)
+targets          = ["198.51.100.20/32"] # exact hosts / /32 (a human may use a capped CIDR)
 ports            = [3000, 8000]         # explicit; no default port sweep
 ```
 
 `--invoker agent` may use **exact hosts only** (no CIDR). `--invoker human` may
-add an explicit, budget-capped CIDR (e.g. `10.0.5.0/28`). Ranges are never
+add an explicit, budget-capped CIDR (e.g. `198.51.100.0/28`). Ranges are never
 implicitly expanded.
 
 ## 3. Sign it (default: SSH)

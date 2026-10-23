@@ -17,7 +17,7 @@
 # pfSense confirms independently.
 #
 # Usage:
-#   HOST_LAN_IP=192.168.10.20 docker compose -f lab/synthetic/docker-compose.yml up -d
+#   HOST_LAN_IP=198.51.100.20 docker compose -f lab/synthetic/docker-compose.yml up -d
 #   mcpscan scan                      # observe the socket exposure classification
 #   docker compose -f lab/synthetic/docker-compose.yml down
 #
