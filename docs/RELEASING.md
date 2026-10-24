@@ -50,6 +50,11 @@ bumps the major. You never edit the version in `pyproject.toml` by hand.
 
 ## Notes
 
+- Only one release-please run executes at a time. A run may wait for the one
+  ahead of it, or show as *cancelled* when a newer push replaces it while it is
+  still queued; both are expected. Whichever run creates the release, `publish`
+  builds the commit the release tag points at, and fails closed if that tag is
+  not on `main` or its tree declares a different version.
 - Built artifacts are named `ianua_broker-<version>` and must match the
   `ianua-broker` PyPI project the Trusted Publisher is scoped to.
 - To do a dry run first, publish to TestPyPI by adding a `repository-url` to the

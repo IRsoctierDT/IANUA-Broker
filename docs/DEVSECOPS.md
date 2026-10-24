@@ -101,7 +101,9 @@ We follow [SemVer 2.0.0](https://semver.org/): `MAJOR.MINOR.PATCH`.
 
 The version is **single-sourced** from `pyproject.toml` `[project].version`;
 `mcpscan.__version__` derives from the installed metadata. The release workflow
-refuses to publish if the git tag (`vX.Y.Z`) doesn't equal that field.
+builds the commit the release tag points at, not whichever commit happened to
+trigger the run, and refuses to publish unless that tree's version matches the tag
+(`ianua-broker-vX.Y.Z`) and the tag sits on `main`.
 
 **Automated (Phase 3 — implemented, `.github/workflows/release-please.yml`):**
 [release-please](https://github.com/googleapis/release-please) reads Conventional
