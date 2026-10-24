@@ -221,7 +221,9 @@ Every production release produces:
 
 - **sdist + wheel** — built once, published to PyPI via **Trusted Publishing
   (OIDC)** — no long-lived API token is ever stored.
-- **SBOM** — CycloneDX JSON (`sbom.cdx.json`) attached to the GitHub Release.
+- **SBOM** — CycloneDX JSON (`sbom.cdx.json`) attached to the GitHub Release. It
+  describes what a user installs — the released wheel and its runtime
+  dependencies, with the package as its subject — not the CI job that built it.
 - **Checksums** — `SHA256SUMS` over the distribution files.
 - **Release notes + `CHANGELOG.md`** — from Conventional Commits.
 - **Provenance** *(Phase 4)* — build provenance attestation
