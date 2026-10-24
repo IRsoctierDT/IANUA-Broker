@@ -14,7 +14,10 @@ not the tagged source. These tests hold its invariants on every run instead:
   built from the commit after its tag);
 * the workflow's own resolve and verify scripts, run here as Actions runs them,
   name the tag release-please creates and fail closed on a version mismatch or a
-  tag that is not on main.
+  tag that is not on main;
+* the SBOM describes the released wheel and its runtime dependencies, with the
+  package as its subject, rather than the CI job's own environment (1.11.5's
+  listed 37 build and SBOM tools beside the 2 packages a user installs).
 """
 
 from __future__ import annotations
@@ -86,6 +89,19 @@ def test_publish_keeps_the_token_out_of_git_config() -> None:
     assert checkouts, "publish must check out the repository"
     for step in checkouts:
         assert step["with"]["persist-credentials"] is False
+
+
+def test_sbom_describes_the_released_wheel_not_the_build_job() -> None:
+    script = _step("Generate CycloneDX SBOM")["run"]
+    commands = [shlex.split(line) for line in script.splitlines() if line.strip()]
+    env_python = "$RUNNER_TEMP/sbom-env/bin/python"
+    # An otherwise empty environment, holding only the wheel being published.
+    assert ["python", "-m", "venv", "--without-pip", "$RUNNER_TEMP/sbom-env"] in commands
+    assert ["python", "-m", "pip", "--python", env_python, "install", "dist/*.whl"] in commands
+    assert ["python", "-m", "pip", "install", "."] not in commands
+    sbom = next(c for c in commands if c[:2] == ["cyclonedx-py", "environment"])
+    assert sbom[-1] == env_python, "the SBOM must describe that environment, not this job's"
+    assert "--pyproject" in sbom, "the package must be the SBOM's subject"
 
 
 @pytest.fixture
