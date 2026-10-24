@@ -28,6 +28,18 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    # One release-please run at a time, repository-wide. A release-PR merge
+    # followed closely by another push used to run this job twice at once:
+    # both runs saw the merged PR as pending, both tried to create the same
+    # release, and one failed with `already_exists` (1.11.4). The group is
+    # fixed rather than per-ref because release-please always acts on the
+    # default branch, whatever ref triggered the run. It is job-level so a
+    # publish waiting on `pypi` approval never holds up the next run. Never
+    # cancel in progress: a run cut short mid-release can leave a tag with no
+    # publish.
+    concurrency:
+      group: release-please
+      cancel-in-progress: false
     outputs:
       # Manifest mode (no explicit root component) exposes the "any release
       # created" flag as `releases_created` — NOT the top-level `release_created`,
@@ -54,6 +66,8 @@ jobs:
       contents: write # attach SBOM + checksums to the release
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false # nothing here pushes; keep the token from build code
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -68,6 +82,41 @@ jobs:
           PKG=$(python -c "import json; print(json.load(open('release-please-config.json'))['packages']['.']['package-name'])")
           VER=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           echo "name=${PKG}-v${VER}" >> "$GITHUB_OUTPUT"
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the tagged release
+        # Build the commit the release tag points at, not the commit that
+        # triggered this run. They differ whenever the run creating the release
+        # is not the release commit's own: a concurrent push, a newer run that
+        # replaced a pending one, or a retry after that run failed. 1.11.4 was
+        # built that way from the commit after its tag, so its sdist carries a
+        # file the tag does not have. Full history, so the tag can be checked
+        # against main below.
+        uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify the tag before building it
+        # Fail closed unless the tagged tree declares the version the tag names
+        # (the version-vs-tag guard docs/DEVSECOPS.md describes) and the tag
+        # sits on main's history, so a tag pushed onto any other commit can
+        # never reach PyPI.
+        env:
+          TAG: ${{ steps.tag.outputs.name }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          TREE_VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          if [ "$TREE_VERSION" != "$VERSION" ]; then
+            echo "::error::$TAG declares version $TREE_VERSION, not $VERSION; refusing to publish"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::$TAG ($(git rev-parse HEAD)) is not on main; refusing to publish"
+            exit 1
+          fi
+          echo "Publishing $TAG from $(git rev-parse HEAD)"
 
       - name: Build distributions
         run: |

@@ -52,7 +52,7 @@ yaml = ["pyyaml>=6"]
 dev = [
     "pytest",
     "pytest-cov",
-    "pyyaml",          # dev-only: parses docs/STATUS.yaml in the status-sync test
+    "pyyaml",          # dev-only: parses docs/STATUS.yaml and the release workflow in tests
     "cryptography>=41",  # dev: exercise the `crypto` extra (Ed25519) in CI
     # Pinned: a newer ruff started flagging RUF100 on `noqa: S1xx/S3xx`
     # directives for rules this config never enables, breaking CI on every

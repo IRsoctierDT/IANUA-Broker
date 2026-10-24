@@ -37,7 +37,7 @@ stdlib, offline by default, deterministic, and fail-closed.
 
 | ID | Pri | MVP |
 |---|---|---|
-| `R-STATUS-SYNC` | P1 | Keep `STATUS.yaml` dated with each release-please bump |
+| `R-STATUS-SYNC` | P1 — **landed** | Keep `STATUS.yaml` dated with each release-please bump. Shipped as T-605: release-please bumps `meta.release` and the `STATUS.md` *Released* bullet as extra-files (#149), and `tests/test_status_sync.py` asserts both against `pyproject.toml` (#147). Only the `updated` date is still set by hand |
 | `R-ATB-TIP-EXPORT` | P0 follow | agent-trust-broker writes tip into `broker.json` evidence automatically |
 | `R-EXTRAS-SPLIT` | P2 | Optional extras: `graph`, `lan` install profiles |
 | `R-NAME-CLARITY` | P2 | README hierarchy: scanner vs Agent Trust Broker |
