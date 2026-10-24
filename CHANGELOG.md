@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.6](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.11.5...ianua-broker-v1.11.6) (2026-10-24)
+
+
+### Bug Fixes
+
+* **release:** describe the released wheel in the SBOM ([#159](https://github.com/IRsoctierDT/IANUA-Broker/issues/159)) ([61b0c50](https://github.com/IRsoctierDT/IANUA-Broker/commit/61b0c502668278dbac0aea8390092b42f0cd027c))
+
 ## [1.11.5](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.11.4...ianua-broker-v1.11.5) (2026-10-24)
 
 
