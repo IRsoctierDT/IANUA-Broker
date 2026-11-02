@@ -70,7 +70,7 @@ jobs:
           # A secret is a leak wherever in history it landed, not only at the
           # tip, so the whole history has to be present to scan it.
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "stable"
       - name: Install gitleaks (pinned)
