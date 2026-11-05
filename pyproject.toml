@@ -85,6 +85,11 @@ packages = ["src/mcpscan"]
 target-version = "py311"
 line-length = 100
 
+[tool.ruff.lint]
+# RUF100 (unused `noqa`) is in ruff's default rule set today; name it so a
+# future default-set change cannot silently stop flagging stale suppressions.
+extend-select = ["RUF100"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = true
