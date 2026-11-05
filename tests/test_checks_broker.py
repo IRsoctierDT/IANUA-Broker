@@ -419,3 +419,127 @@ def test_chain_verify_reason_surfaces_mismatch_finding() -> None:
         subjects, _sound(("cfg#shell",)), present=True, chain_verify_reason="tip_hash_mismatch"
     )
     assert any(f.id == "BROKER-EVIDENCE-MISMATCH" for f in findings)
+
+
+# --- tip-hash spelling (regression: the two repositories disagreed) ---------
+#
+# The ATB's ``audit.digest()`` returns ``"sha256:" + hexdigest`` and its
+# ``persistence`` writes that string verbatim as a record's ``record_hash``, so
+# the prefixed form below is what a real chain holds. This check's manifest
+# field was documented as bare hex and compared against the chain value
+# unnormalized, so no value of ``expect_tip_hash`` satisfied both gates:
+# the prefixed spelling voided the evidence block (BROKER-EVIDENCE-MISSING) and
+# the bare spelling failed the comparison (BROKER-EVIDENCE-MISMATCH). The older
+# fixtures above missed it because they put bare hex in ``record_hash``, a shape
+# the ATB never emits. ``mcpscan`` takes no dependency on the ATB (ADR-17), so
+# the spelling is pinned here as a literal rather than imported.
+_ATB_RECORD_HASH = "sha256:" + _TIP
+
+
+def test_manifest_accepts_the_prefixed_spelling_the_chain_writes() -> None:
+    raw = json.dumps(
+        {
+            "schema_version": "1.0",
+            "fronts": ["cfg#shell"],
+            "allowlist": "least_privilege",
+            "tool_manifests": "signed",
+            "audit_log": "enabled",
+            "evidence": {
+                "expect_tip": "ATB-DEC-000001",
+                "expect_tip_hash": _ATB_RECORD_HASH,
+            },
+        }
+    )
+    manifest = parse_broker_manifest(raw)
+    assert isinstance(manifest, BrokerManifest)
+    assert manifest.evidence is not None
+    # Normalized to bare hex, so the stored form stays canonical.
+    assert manifest.evidence.expect_tip_hash == _TIP
+
+
+def test_verify_chain_tip_accepts_either_spelling_on_either_side() -> None:
+    for manifest_hash in (_TIP, _ATB_RECORD_HASH):
+        for chain_hash in (_TIP, _ATB_RECORD_HASH):
+            ev = BrokerEvidence(
+                expect_tip="ATB-DEC-000001",
+                expect_tip_hash=_TIP,
+            )
+            assert (
+                parse_broker_manifest(
+                    json.dumps(
+                        {
+                            "evidence": {
+                                "expect_tip": ev.expect_tip,
+                                "expect_tip_hash": manifest_hash,
+                            }
+                        }
+                    )
+                ).evidence
+                == ev
+            )
+            line = json.dumps({"decision_id": ev.expect_tip, "record_hash": chain_hash})
+            assert verify_chain_tip(line + "\n", ev) is None, (manifest_hash, chain_hash)
+
+
+def test_a_different_digest_still_mismatches_in_both_spellings() -> None:
+    """The widened spelling must not widen the accepted value."""
+    ev = _evidence()
+    for other in ("b" * 64, "sha256:" + "b" * 64):
+        line = json.dumps({"decision_id": ev.expect_tip, "record_hash": other})
+        assert verify_chain_tip(line, ev) == "tip_hash_mismatch"
+
+
+def test_manifest_rejects_malformed_tip_hashes() -> None:
+    for bad in (
+        None,
+        123,
+        "",
+        "sha256:",
+        "a" * 63,
+        "a" * 65,
+        "sha256:" + "a" * 63,
+        "g" * 64,
+        "sha512:" + "a" * 64,
+        "sha256:sha256:" + "a" * 64,
+        f"{_TIP}\x00",
+    ):
+        raw = json.dumps({"evidence": {"expect_tip": "ATB-DEC-000001", "expect_tip_hash": bad}})
+        manifest = parse_broker_manifest(raw)
+        assert isinstance(manifest, BrokerManifest)
+        assert manifest.evidence is None, bad
+
+
+def test_chain_tip_with_unreadable_record_hash_mismatches() -> None:
+    ev = _evidence()
+    for bad in (None, 123, "", "sha512:" + "a" * 64, "a" * 63):
+        line = json.dumps({"decision_id": ev.expect_tip, "record_hash": bad})
+        assert verify_chain_tip(line, ev) == "tip_hash_mismatch", bad
+
+
+def test_a_correct_atb_deployment_grades_clean_end_to_end() -> None:
+    """Clean fixture: the whole point of the fix — zero findings, not a High."""
+    raw = json.dumps(
+        {
+            "schema_version": "1.0",
+            "fronts": ["cfg#shell"],
+            "allowlist": "least_privilege",
+            "tool_manifests": "signed",
+            "audit_log": "enabled",
+            "evidence": {
+                "expect_tip": "ATB-DEC-000001",
+                "expect_tip_hash": _ATB_RECORD_HASH,
+                "chain_path": "/var/lib/ianua-atb/chain.jsonl",
+            },
+        }
+    )
+    manifest = parse_broker_manifest(raw)
+    assert isinstance(manifest, BrokerManifest)
+    assert manifest.evidence is not None
+
+    chain = json.dumps({"decision_id": "ATB-DEC-000001", "record_hash": _ATB_RECORD_HASH})
+    reason = verify_chain_tip(chain + "\n", manifest.evidence)
+    assert reason is None
+
+    subjects = [("cfg#shell", _decl("shell", auto_approve=("run_command",)))]
+    findings = check_broker_posture(subjects, manifest, present=True, chain_verify_reason=reason)
+    assert findings == []
