@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.7](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.11.6...ianua-broker-v1.11.7) (2026-11-05)
+
+
+### Bug Fixes
+
+* **checks:** normalize ATB tip-hash spelling on both sides of the comparison ([#165](https://github.com/IRsoctierDT/IANUA-Broker/issues/165)) ([d051414](https://github.com/IRsoctierDT/IANUA-Broker/commit/d0514143d41d7a64747a9a3b22cdfe4eb5bcef3d))
+
 ## [1.11.6](https://github.com/IRsoctierDT/IANUA-Broker/compare/ianua-broker-v1.11.5...ianua-broker-v1.11.6) (2026-10-24)
 
 
