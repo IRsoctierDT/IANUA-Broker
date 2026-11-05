@@ -21,6 +21,13 @@ v1.6+: good postures and non-empty ``fronts`` require an ``evidence`` block
 binding claims to an ATB audit-chain tip id + tip hash (honor-system enums
 alone cannot grade clean). Wrapper detection requires a path-qualified
 ``ianua-atb`` binary (not a bare spoofable basename).
+
+Tip hashes are compared **after normalization on both sides**, because the two
+repositories spell a digest differently: the ATB's ``audit.digest()`` emits
+``"sha256:" + hexdigest`` and ``persistence`` writes that string verbatim as a
+record's ``record_hash``, while this check's manifest field was documented as
+bare hex. Normalizing only one side meant no value of ``expect_tip_hash``
+could satisfy both gates (see :func:`_normalize_tip_hash`).
 """
 
 from __future__ import annotations
@@ -48,7 +55,29 @@ _RUNNERS = frozenset(
     {"npx", "pnpx", "bunx", "uvx", "uv", "pipx", "node", "python", "python3", "sh", "bash", "env"}
 )
 
-_TIP_HASH = re.compile(r"^[0-9a-f]{64}$")
+#: A sha256 tip hash in either spelling the two repositories use: bare hex, or
+#: prefixed as the ATB's own chain writes it. The prefix is a fixed literal, not
+#: an algorithm field — no other algorithm name is accepted.
+_TIP_HASH = re.compile(r"^(?:sha256:)?([0-9a-f]{64})$")
+
+
+def _normalize_tip_hash(value: object) -> str | None:
+    """Canonicalize a sha256 tip hash to bare lowercase hex, or ``None``.
+
+    Accepts ``"<64 hex>"`` and ``"sha256:<64 hex>"``, in any case, and nothing
+    else. Both the manifest's ``expect_tip_hash`` and a chain record's
+    ``record_hash`` pass through here before they are compared, so the two
+    spellings of one digest compare equal while two different digests still do
+    not: the prefix is stripped, never interpreted, and the 64 hex characters
+    are compared in full.
+
+    Security consideration: this widens the accepted *spelling*, never the
+    accepted *value*. A hash that does not match the chain's tip still fails.
+    """
+    if not isinstance(value, str):
+        return None
+    match = _TIP_HASH.fullmatch(value.strip().lower())
+    return match.group(1) if match is not None else None
 
 
 @dataclass(frozen=True)
@@ -90,7 +119,8 @@ def _parse_evidence(raw: object) -> BrokerEvidence | None:
     tip_hash = raw.get("expect_tip_hash")
     if not isinstance(tip, str) or not tip or "\x00" in tip:
         return None
-    if not isinstance(tip_hash, str) or not _TIP_HASH.fullmatch(tip_hash.lower()):
+    normalized_hash = _normalize_tip_hash(tip_hash)
+    if normalized_hash is None:
         return None
     chain = raw.get("chain_path")
     chain_path = str(chain) if isinstance(chain, str) else ""
@@ -98,7 +128,7 @@ def _parse_evidence(raw: object) -> BrokerEvidence | None:
         chain_path = ""
     return BrokerEvidence(
         expect_tip=tip,
-        expect_tip_hash=tip_hash.lower(),
+        expect_tip_hash=normalized_hash,
         chain_path=chain_path,
     )
 
@@ -204,7 +234,7 @@ def verify_chain_tip(chain_text: str, evidence: BrokerEvidence) -> str | None:
     tip_hash = body.get("record_hash")
     if tip_id != evidence.expect_tip:
         return "tip_id_mismatch"
-    if not isinstance(tip_hash, str) or tip_hash.lower() != evidence.expect_tip_hash:
+    if _normalize_tip_hash(tip_hash) != evidence.expect_tip_hash:
         return "tip_hash_mismatch"
     return None
 
@@ -310,9 +340,10 @@ def _evidence_missing_finding(manifest_path: str) -> Finding:
         title="Broker posture claims lack audit-chain tip evidence",
         location=Location(path=manifest_path),
         remediation=(
-            "Add an evidence block with expect_tip and expect_tip_hash (64-hex "
-            "record hash of the ATB audit tip). Prefer chain_path so mcpscan can "
-            "verify the tip against the local chain."
+            "Add an evidence block with expect_tip and expect_tip_hash (the "
+            "record hash of the ATB audit tip, either bare 64-hex or prefixed "
+            "'sha256:' exactly as the chain writes it). Prefer chain_path so "
+            "mcpscan can verify the tip against the local chain."
         ),
         rationale=(
             "Allowlist/manifest/audit enums are self-attested. Without a tip "
