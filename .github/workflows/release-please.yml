@@ -52,7 +52,7 @@ jobs:
       releases_created: ${{ steps.rp.outputs.releases_created }}
     steps:
       - id: rp
-        uses: googleapis/release-please-action@v5
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -65,10 +65,10 @@ jobs:
       id-token: write # OIDC Trusted Publishing
       contents: write # attach SBOM + checksums to the release
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false # nothing here pushes; keep the token from build code
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.11"
 
@@ -92,7 +92,7 @@ jobs:
         # built that way from the commit after its tag, so its sdist carries a
         # file the tag does not have. Full history, so the tag can be checked
         # against main below.
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/tags/${{ steps.tag.outputs.name }}
           fetch-depth: 0
@@ -141,10 +141,10 @@ jobs:
           cyclonedx-py environment --pyproject pyproject.toml -o sbom.cdx.json "$RUNNER_TEMP/sbom-env/bin/python"
 
       - name: Publish to PyPI (Trusted Publishing)
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
 
       - name: Attach SBOM + checksums to the release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ steps.tag.outputs.name }}
           files: |

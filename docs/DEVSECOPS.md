@@ -232,6 +232,22 @@ Every production release produces:
 Reproducibility: builds pin `hatchling`, run in an isolated environment
 (`python -m build`), and the version-vs-tag guard prevents drift.
 
+**CI action pinning.** Every third-party action in `.github/workflows/` is pinned
+to a full 40-character commit SHA with a release comment, e.g.
+`actions/checkout@<sha> # v7.0.1`. A tag or branch (`@v7`, `@release/v1`) is a
+mutable pointer that whoever controls the upstream repository can move, and the
+next run would execute that code with this repository's token, secrets and PyPI
+publishing identity; a commit SHA cannot be moved. Dependabot
+(`github-actions` ecosystem) bumps the SHA and the comment together, so every
+upstream change arrives as a reviewable PR. `tests/test_workflow_pinning.py` fails
+CI if a workflow references an action by tag or branch, or omits the release
+comment. Resolve a new pin to the **commit** — for an annotated tag that is the
+peeled `^{}` line of `git ls-remote --tags`, not the tag object:
+
+```bash
+git ls-remote --tags https://github.com/actions/checkout.git 'refs/tags/v7.0.1*'
+```
+
 ---
 
 ## 8. Environments, deployment & rollback
@@ -370,6 +386,9 @@ the UI once:
       GitHub Actions to create and approve pull requests"**. **Required for
       release-please** to open its release PR — without it the workflow fails with
       *"GitHub Actions is not permitted to create or approve pull requests."*
+- [ ] Settings → Actions → General → Actions permissions: enable **"Require
+      actions to be pinned to a full-length commit SHA"**, so GitHub itself refuses
+      an unpinned action — server-side enforcement behind the CI guard in Section 7.
 - [ ] Settings → Branches → add a **ruleset/branch protection** for `main` per Section 5.
 - [ ] Settings → Environments → create **`pypi`** with a **required reviewer** (you).
 - [ ] PyPI → add a **Trusted Publisher** on the **`ianua-broker`** project for
